@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -232,7 +233,12 @@ export function CbtSimulatorView({
   if (completedReceipt) {
     const receiptAnalysis = analyzeAttempt(completedReceipt.attempt);
     return (
-      <div className="max-w-2xl mx-auto py-6">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+        className="max-w-4xl mx-auto py-4 sm:py-6 space-y-6"
+      >
         <div className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8 space-y-6">
           <div className="flex items-start gap-3.5 pb-5 border-b border-slate-100">
             <CheckCircle2 className="w-6 h-6 text-emerald-700 shrink-0 mt-0.5" />
@@ -246,7 +252,7 @@ export function CbtSimulatorView({
               <p className="text-xs text-slate-500">
                 {completedReceipt.syncedToSheets
                   ? 'Hasil telah dikirim ke Database Spreadsheet Olimpiade dan siap ditelaah oleh Pembina di Admin Panel.'
-                  : 'Hasil tersimpan pada perangkat ini. Pembina dapat menelaah analisa lengkap per kisi-kisi melalui Admin Panel.'}
+                  : 'Hasil tersimpan pada perangkat ini. Pembina dapat menelaah butir soal lengkap melalui Admin Panel.'}
               </p>
             </div>
           </div>
@@ -281,15 +287,102 @@ export function CbtSimulatorView({
 
           <div className="bg-blue-50/70 border border-blue-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
-              <div className="text-xs font-medium text-blue-800">Predikat Kesiapan Saat Ini</div>
-              <div className="text-sm font-bold text-slate-900">{receiptAnalysis.readinessTier}</div>
+              <div className="text-xs font-medium text-blue-800">Predikat Kesiapan Olimpiade</div>
+              <div className="text-base font-bold text-slate-900">{receiptAnalysis.readinessTier}</div>
             </div>
-            <div className="text-lg font-bold text-blue-700 font-mono tabular-nums">
+            <div className="text-2xl font-bold text-blue-700 font-mono tabular-nums">
               {receiptAnalysis.normalizedPercent}%
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+          {/* Kisi-Kisi & Cognitive Readiness Breakdown */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+            <div className="space-y-3">
+              <h2 className="text-sm font-semibold text-slate-900">
+                Analisa Penguasaan Kisi-Kisi
+              </h2>
+              <div className="space-y-2.5">
+                {receiptAnalysis.domainBreakdown.map((d, idx) => {
+                  const barColor =
+                    d.status === 'Siap'
+                      ? 'bg-emerald-600'
+                      : d.status === 'Perlu Penguatan'
+                      ? 'bg-amber-600'
+                      : 'bg-rose-600';
+                  return (
+                    <div key={d.domain} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-medium text-slate-800">{d.domain}</span>
+                        <span className="font-mono tabular-nums text-slate-600">
+                          {d.accuracyPercent}% ({d.status})
+                        </span>
+                      </div>
+                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <motion.div
+                          initial={{ scaleX: 0 }}
+                          animate={{ scaleX: d.accuracyPercent / 100 }}
+                          transition={{ duration: 0.45, delay: idx * 0.04, ease: [0.16, 1, 0.3, 1] }}
+                          className={`h-full w-full origin-left rounded-full ${barColor}`}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Profil Level Kognitif (LOTS · MOTS · HOTS)
+                </h2>
+                <div className="space-y-2.5">
+                  {receiptAnalysis.cognitiveBreakdown.map((c, idx) => {
+                    const barColor =
+                      c.level === 'LOTS'
+                        ? 'bg-emerald-600'
+                        : c.level === 'MOTS'
+                        ? 'bg-amber-600'
+                        : 'bg-rose-600';
+                    return (
+                      <div key={c.level} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-slate-800">{c.level}</span>
+                          <span className="font-mono tabular-nums text-slate-600">
+                            {c.correct}/{c.total} benar ({c.accuracyPercent}%)
+                          </span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <motion.div
+                            initial={{ scaleX: 0 }}
+                            animate={{ scaleX: c.accuracyPercent / 100 }}
+                            transition={{ duration: 0.45, delay: idx * 0.06, ease: [0.16, 1, 0.3, 1] }}
+                            className={`h-full w-full origin-left rounded-full ${barColor}`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                <h3 className="text-xs font-semibold text-slate-900">
+                  Saran Peningkatan Kesiapan
+                </h3>
+                <ul className="space-y-1.5 text-xs text-slate-700 leading-relaxed">
+                  {receiptAnalysis.recommendations.map((rec, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="font-mono font-bold text-blue-700 shrink-0">0{i + 1}.</span>
+                      <span>{rec}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
             <button
               type="button"
               onClick={() => {
@@ -313,7 +406,7 @@ export function CbtSimulatorView({
             )}
           </div>
         </div>
-      </div>
+      </motion.div>
     );
   }
 

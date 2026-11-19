@@ -236,18 +236,24 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-      {/* Top Navigation is hidden in Student Mode; shown only inside authenticated Admin Panel */}
-      {inAdminWorkspace && (
-        <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-xs border-b border-slate-200 no-print">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
-            <button
-              type="button"
-              onClick={() => setAdminTab('results')}
-              className="text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              MGMP Olympiad Lab
-            </button>
+      {/* Top Bar: Student mode hides nav links while keeping Admin Panel trigger clearly visible */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-xs border-b border-slate-200 no-print">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
+          <button
+            type="button"
+            onClick={() => {
+              if (inAdminWorkspace) {
+                setAdminTab('results');
+              } else {
+                setShowAdminLogin(false);
+              }
+            }}
+            className="text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            MGMP Olympiad Lab
+          </button>
 
+          {inAdminWorkspace ? (
             <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
               {(
                 [
@@ -272,8 +278,12 @@ export default function App() {
                 </button>
               ))}
             </nav>
+          ) : (
+            <div className="hidden md:block" aria-hidden="true" />
+          )}
 
-            <div className="shrink-0">
+          <div className="shrink-0">
+            {inAdminWorkspace ? (
               <button
                 type="button"
                 onClick={handleLogoutAdmin}
@@ -281,9 +291,27 @@ export default function App() {
               >
                 Keluar Admin
               </button>
-            </div>
+            ) : showAdminLogin ? (
+              <button
+                type="button"
+                onClick={() => setShowAdminLogin(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                Kembali ke CBT
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowAdminLogin(true)}
+                className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                Admin Panel
+              </button>
+            )}
           </div>
+        </div>
 
+        {inAdminWorkspace && (
           <div className="md:hidden border-t border-slate-100 px-4 py-2 flex items-center gap-4 overflow-x-auto text-xs font-medium">
             {(
               [
@@ -306,8 +334,8 @@ export default function App() {
               </button>
             ))}
           </div>
-        </header>
-      )}
+        )}
+      </header>
 
       {/* Main Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
@@ -332,6 +360,7 @@ export default function App() {
                 onDeleteAttempt={handleDeleteAttempt}
                 onAddManualAttempt={handleAddManualAttempt}
                 onGoToAppsScript={() => setAdminTab('apps_script')}
+                onLaunchDrill={handleStartFocusedCbtFromAdmin}
               />
             )}
             {adminTab === 'analytics' && (
@@ -342,6 +371,7 @@ export default function App() {
                 onDeleteAttempt={handleDeleteAttempt}
                 onAddManualAttempt={handleAddManualAttempt}
                 onGoToResults={() => setAdminTab('results')}
+                onLaunchDrill={handleStartFocusedCbtFromAdmin}
               />
             )}
             {adminTab === 'bank' && (
