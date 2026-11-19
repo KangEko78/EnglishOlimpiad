@@ -1,0 +1,6 @@
+{
+  "name": "English Olympiad 2026 — Bank Soal & CBT Analitik",
+  "description": "Bank 100 soal LOTS, MOTS, dan HOTS standar Olimpiade Bahasa Inggris SMP berdasarkan Juknis MGMP Banyuwangi 2026, lengkap dengan simulasi CBT dan analisa kesiapan siswa.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
