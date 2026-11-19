@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -46,6 +46,44 @@ interface CbtSimulatorViewProps {
 }
 
 type ExamModeChoice = 'full_preliminary' | 'diagnostic_21' | 'focused_drill';
+
+const ACTIVE_SESSION_STORAGE_KEY = 'smpn2kbr_active_cbt_draft_v1';
+
+interface SavedCbtDraft {
+  student: StudentProfile;
+  session: CbtSessionConfig;
+  startedAtIso: string;
+  currentIndex: number;
+  answers: Record<number, OptionKey>;
+  flaggedIds: number[];
+  endTimeMs: number;
+}
+
+function loadSavedDraft(): SavedCbtDraft | null {
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SavedCbtDraft;
+    if (
+      !parsed?.session?.questionIds?.length ||
+      !parsed?.student?.name ||
+      typeof parsed.endTimeMs !== 'number'
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearSavedDraft() {
+  try {
+    window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 function buildDiagnostic21Ids(): number[] {
   const picked: number[] = [];
@@ -113,8 +151,10 @@ export function CbtSimulatorView({
   const [emblemImgFailed, setEmblemImgFailed] = useState(false);
 
   // Active exam state
+  const [savedDraft, setSavedDraft] = useState<SavedCbtDraft | null>(() => loadSavedDraft());
   const [activeSession, setActiveSession] = useState<CbtSessionConfig | null>(null);
   const [startedAtIso, setStartedAtIso] = useState<string>('');
+  const [endTimeMs, setEndTimeMs] = useState<number>(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, OptionKey>>({});
   const [flaggedIds, setFlaggedIds] = useState<number[]>([]);
@@ -128,6 +168,14 @@ export function CbtSimulatorView({
     syncedToSheets: boolean;
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const latestStateRef = useRef({
+    activeSession,
+    answers,
+    flaggedIds,
+    secondsLeft,
+  });
+  latestStateRef.current = { activeSession, answers, flaggedIds, secondsLeft };
 
   useEffect(() => {
     if (initialPreset) {
@@ -186,14 +234,43 @@ export function CbtSimulatorView({
   const simPercent = Math.max(0, Math.round((simNetScore / 400) * 100));
 
   const startSessionWithConfig = (session: CbtSessionConfig) => {
+    const now = Date.now();
+    const nextEnd = now + session.durationMinutes * 60 * 1000;
+    const started = new Date(now).toISOString();
+    clearSavedDraft();
+    setSavedDraft(null);
     setFormError(null);
     setCompletedReceipt(null);
     setActiveSession(session);
-    setStartedAtIso(new Date().toISOString());
+    setStartedAtIso(started);
+    setEndTimeMs(nextEnd);
     setCurrentIndex(0);
     setAnswers({});
     setFlaggedIds([]);
     setSecondsLeft(session.durationMinutes * 60);
+    setShowSubmitConfirm(false);
+    setShowQuestionNav(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleResumeDraft = () => {
+    if (!savedDraft) return;
+    const remainingSec = Math.max(
+      60,
+      Math.round((savedDraft.endTimeMs - Date.now()) / 1000)
+    );
+    const resumedEnd = Date.now() + remainingSec * 1000;
+    setStudent(savedDraft.student);
+    setCompletedReceipt(null);
+    setActiveSession(savedDraft.session);
+    setStartedAtIso(savedDraft.startedAtIso);
+    setEndTimeMs(resumedEnd);
+    setCurrentIndex(
+      Math.min(savedDraft.currentIndex, Math.max(0, savedDraft.session.questionIds.length - 1))
+    );
+    setAnswers(savedDraft.answers || {});
+    setFlaggedIds(savedDraft.flaggedIds || []);
+    setSecondsLeft(remainingSec);
     setShowSubmitConfirm(false);
     setShowQuestionNav(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -227,26 +304,62 @@ export function CbtSimulatorView({
       flaggedIds: currentFlags,
     };
 
-    const res = await onCompleteAttempt(attempt);
-    setActiveSession(null);
-    setShowSubmitConfirm(false);
-    setIsSubmitting(false);
-    setCompletedReceipt({ attempt, syncedToSheets: res.syncedToSheets });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    try {
+      const res = await onCompleteAttempt(attempt);
+      clearSavedDraft();
+      setSavedDraft(null);
+      setActiveSession(null);
+      setShowSubmitConfirm(false);
+      setCompletedReceipt({ attempt, syncedToSheets: res.syncedToSheets });
+    } catch {
+      clearSavedDraft();
+      setSavedDraft(null);
+      setActiveSession(null);
+      setShowSubmitConfirm(false);
+      setCompletedReceipt({ attempt, syncedToSheets: false });
+    } finally {
+      setIsSubmitting(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
+  // Auto-save active session progress so refresh, sleep, or brief network drop never loses answers
   useEffect(() => {
-    if (!activeSession) return;
-    if (secondsLeft <= 0) {
-      void finishExam(activeSession, answers, flaggedIds, 0);
-      return;
+    if (!activeSession || !endTimeMs) return;
+    try {
+      const draft: SavedCbtDraft = {
+        student,
+        session: activeSession,
+        startedAtIso,
+        currentIndex,
+        answers,
+        flaggedIds,
+        endTimeMs,
+      };
+      window.localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(draft));
+    } catch {
+      // Ignore quota errors
     }
-    const timer = window.setInterval(() => {
-      setSecondsLeft((prev) => prev - 1);
-    }, 1000);
+  }, [activeSession, student, startedAtIso, currentIndex, answers, flaggedIds, endTimeMs]);
+
+  // Stable single interval timer per active exam session
+  useEffect(() => {
+    if (!activeSession || !endTimeMs) return;
+    const tick = () => {
+      const rem = Math.max(0, Math.round((endTimeMs - Date.now()) / 1000));
+      setSecondsLeft(rem);
+      if (rem <= 0) {
+        const snap = latestStateRef.current;
+        if (snap.activeSession) {
+          void finishExam(snap.activeSession, snap.answers, snap.flaggedIds, 0);
+        }
+      }
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSession, secondsLeft]);
+  }, [activeSession, endTimeMs]);
 
   useEffect(() => {
     if (!activeSession || showSubmitConfirm) return;
@@ -536,8 +649,29 @@ export function CbtSimulatorView({
 
   // ================= ACTIVE CBT WORKSPACE =================
   if (activeSession) {
-    const currentQId = activeSession.questionIds[currentIndex];
+    const safeIndex = Math.min(
+      Math.max(0, currentIndex),
+      Math.max(0, activeSession.questionIds.length - 1)
+    );
+    const currentQId = activeSession.questionIds[safeIndex];
     const currentQuestion = QUESTION_BY_ID[currentQId];
+    if (!currentQuestion) {
+      return (
+        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center space-y-4">
+          <p className="text-sm text-slate-700">Terjadi kesalahan indeks butir soal.</p>
+          <button
+            type="button"
+            onClick={() => {
+              clearSavedDraft();
+              setActiveSession(null);
+            }}
+            className="px-4 py-2 text-sm font-semibold text-white bg-blue-700 rounded-lg cursor-pointer"
+          >
+            Kembali ke Portal CBT
+          </button>
+        </div>
+      );
+    }
     const selectedOption = answers[currentQId];
     const isFlagged = flaggedIds.includes(currentQId);
     const answeredCount = Object.keys(answers).length;
@@ -628,74 +762,65 @@ export function CbtSimulatorView({
               showQuestionNav ? 'lg:col-span-8' : 'lg:col-span-12'
             } bg-white border border-slate-200 rounded-xl p-6 space-y-6`}
           >
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={currentQuestion.id}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                className="space-y-6"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-100">
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <span className="font-mono font-bold text-slate-900 tabular-nums">
-                      Butir {currentIndex + 1} / {activeSession.questionIds.length}
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span className="font-medium text-slate-700">{currentQuestion.domain}</span>
-                  </div>
-                  <span className="text-xs font-mono text-slate-400">
-                    No. {String(currentQuestion.id).padStart(3, '0')}
+            <div key={currentQuestion.id} className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <span className="font-mono font-bold text-slate-900 tabular-nums">
+                    Butir {safeIndex + 1} / {activeSession.questionIds.length}
                   </span>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-medium text-slate-700">{currentQuestion.domain}</span>
                 </div>
+                <span className="text-xs font-mono text-slate-400">
+                  No. {String(currentQuestion.id).padStart(3, '0')}
+                </span>
+              </div>
 
-                {currentQuestion.passage && (
-                  <div className="bg-slate-50 border border-slate-200/80 rounded-lg p-5 space-y-2.5 max-h-[340px] overflow-y-auto">
-                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-                      <BookOpenText className="w-4 h-4 text-slate-500 shrink-0" />
-                      <span>{currentQuestion.passageTitle ?? 'Reading Passage'}</span>
-                    </div>
-                    <div className="font-serif text-[15px] leading-relaxed text-slate-800 whitespace-pre-line">
-                      {currentQuestion.passage}
-                    </div>
+              {currentQuestion.passage && (
+                <div className="bg-slate-50 border border-slate-200/80 rounded-lg p-5 space-y-2.5 max-h-[340px] overflow-y-auto">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                    <BookOpenText className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span>{currentQuestion.passageTitle ?? 'Reading Passage'}</span>
                   </div>
-                )}
-
-                <div className="text-base font-medium text-slate-900 leading-relaxed whitespace-pre-line">
-                  {currentQuestion.question}
+                  <div className="font-serif text-[15px] leading-relaxed text-slate-800 whitespace-pre-line">
+                    {currentQuestion.passage}
+                  </div>
                 </div>
+              )}
 
-                <div className="space-y-3">
-                  {(['A', 'B', 'C', 'D'] as const).map((opt) => {
-                    const isSelected = selectedOption === opt;
-                    return (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => setAnswers((prev) => ({ ...prev, [currentQId]: opt }))}
-                        className={`w-full text-left flex items-start gap-3.5 px-4 py-3.5 rounded-lg border transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-blue-50 border-blue-600 text-blue-950 font-medium'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+              <div className="text-base font-medium text-slate-900 leading-relaxed whitespace-pre-line">
+                {currentQuestion.question}
+              </div>
+
+              <div className="space-y-3">
+                {(['A', 'B', 'C', 'D'] as const).map((opt) => {
+                  const isSelected = selectedOption === opt;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => setAnswers((prev) => ({ ...prev, [currentQId]: opt }))}
+                      className={`w-full text-left flex items-start gap-3.5 px-4 py-3.5 rounded-lg border transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-blue-50 border-blue-600 text-blue-950 font-medium'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`w-6 h-6 rounded-md flex items-center justify-center font-mono text-xs font-bold shrink-0 mt-0.5 ${
+                          isSelected ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'
                         }`}
                       >
-                        <span
-                          className={`w-6 h-6 rounded-md flex items-center justify-center font-mono text-xs font-bold shrink-0 mt-0.5 ${
-                            isSelected ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {opt}
-                        </span>
-                        <span className="text-sm sm:text-[15px] leading-snug">
-                          {currentQuestion.options[opt]}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            </AnimatePresence>
+                        {opt}
+                      </span>
+                      <span className="text-sm sm:text-[15px] leading-snug">
+                        {currentQuestion.options[opt]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -954,6 +1079,44 @@ export function CbtSimulatorView({
           )}
         </div>
       </motion.section>
+
+      {/* Recovery Banner if previous session was interrupted (e.g. refresh / device sleep) */}
+      {savedDraft && (
+        <section className="bg-amber-50/90 border border-amber-300 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="text-xs font-semibold text-amber-800">
+              Sesi Ujian Sebelumnya Tersimpan Otomatis
+            </div>
+            <p className="text-sm text-slate-900 font-medium">
+              {savedDraft.student.name} (Kelas {savedDraft.student.grade}) ·{' '}
+              <span className="font-mono tabular-nums">
+                {Object.keys(savedDraft.answers).length}/{savedDraft.session.questionIds.length} terjawab
+              </span>{' '}
+              (berhenti di Butir #{savedDraft.currentIndex + 1})
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                clearSavedDraft();
+                setSavedDraft(null);
+              }}
+              className="px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer whitespace-nowrap"
+            >
+              Abaikan
+            </button>
+            <button
+              type="button"
+              onClick={handleResumeDraft}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 cursor-pointer whitespace-nowrap"
+            >
+              <Play className="w-3.5 h-3.5" />
+              Lanjutkan dari Butir #{savedDraft.currentIndex + 1}
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* Main Workspace Split: Setup Form + Interactive Scoring Strategy */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

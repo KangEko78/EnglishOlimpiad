@@ -224,9 +224,23 @@ export interface PingResult {
   error?: string;
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs = 12000
+): Promise<Response> {
+  const controller = new AbortController();
+  const id = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(id);
+  }
+}
+
 export async function pingAppsScript(webAppUrl: string): Promise<PingResult> {
   const url = `${webAppUrl.trim()}${webAppUrl.includes('?') ? '&' : '?'}action=ping`;
-  const res = await fetch(url, { method: 'GET', redirect: 'follow' });
+  const res = await fetchWithTimeout(url, { method: 'GET', redirect: 'follow' });
   if (!res.ok) {
     return { ok: false, error: `HTTP ${res.status}` };
   }
@@ -235,7 +249,7 @@ export async function pingAppsScript(webAppUrl: string): Promise<PingResult> {
 
 export async function fetchAttemptsFromSheets(webAppUrl: string): Promise<CbtAttempt[]> {
   const url = `${webAppUrl.trim()}${webAppUrl.includes('?') ? '&' : '?'}action=list`;
-  const res = await fetch(url, { method: 'GET', redirect: 'follow' });
+  const res = await fetchWithTimeout(url, { method: 'GET', redirect: 'follow' });
   if (!res.ok) {
     throw new Error(`Gagal memuat data Spreadsheet (HTTP ${res.status})`);
   }
@@ -296,7 +310,7 @@ export async function pushAttemptToSheets(
   };
 
   // Use text/plain to avoid CORS preflight failures on Google Apps Script Web Apps
-  const res = await fetch(webAppUrl.trim(), {
+  const res = await fetchWithTimeout(webAppUrl.trim(), {
     method: 'POST',
     redirect: 'follow',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -314,7 +328,7 @@ export async function deleteAttemptFromSheets(
   webAppUrl: string,
   attemptId: string
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(webAppUrl.trim(), {
+  const res = await fetchWithTimeout(webAppUrl.trim(), {
     method: 'POST',
     redirect: 'follow',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
