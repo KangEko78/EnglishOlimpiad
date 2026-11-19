@@ -17,6 +17,7 @@ import { analyzeAttempt, QUESTION_BANK } from '../data/questionBank';
 import {
   CbtAttempt,
   CognitiveLevel,
+  JUKNIS_CONSTANTS,
   OptionKey,
   StudentProfile,
   SyllabusDomain,
@@ -49,13 +50,14 @@ export function AdminResultsView({
   onLaunchDrill,
 }: AdminResultsViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [gradeFilter, setGradeFilter] = useState<'ALL' | '7' | '8' | '9'>('ALL');
   const [triageFilter, setTriageFilter] = useState<TriageFilter>('ALL');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showManualModal, setShowManualModal] = useState(false);
 
   const [manualStudent, setManualStudent] = useState<StudentProfile>({
     name: '',
-    school: '',
+    school: JUKNIS_CONSTANTS.SCHOOL_NAME,
     grade: '8',
   });
   const [manualRawAnswers, setManualRawAnswers] = useState('');
@@ -144,6 +146,7 @@ export function AdminResultsView({
     const q = searchQuery.trim().toLowerCase();
     return enrichedRows.filter(({ attempt, triageGroup }) => {
       if (triageFilter !== 'ALL' && triageGroup !== triageFilter) return false;
+      if (gradeFilter !== 'ALL' && attempt.student.grade !== gradeFilter) return false;
       if (!q) return true;
       return (
         attempt.student.name.toLowerCase().includes(q) ||
@@ -151,7 +154,7 @@ export function AdminResultsView({
         attempt.configTitle.toLowerCase().includes(q)
       );
     });
-  }, [enrichedRows, searchQuery, triageFilter]);
+  }, [enrichedRows, searchQuery, gradeFilter, triageFilter]);
 
   const handleExportResultsCsv = () => {
     const headers = [
@@ -276,13 +279,13 @@ export function AdminResultsView({
       <section className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 pb-6 border-b border-slate-200">
         <div className="space-y-2 max-w-2xl">
           <p className="text-xs font-medium text-blue-700">
-            Admin Panel · Rekapitulasi Peringkat & Keputusan Pembimbing
+            Admin Panel {JUKNIS_CONSTANTS.SCHOOL_NAME} · Peringkat & Keputusan Pembina
           </p>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 [text-wrap:balance]">
             Hasil CBT Siswa & Pemetaan Tindakan Pembinaan
           </h1>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Lihat langsung pengelompokan kesiapan peserta, kisi-kisi terlemah tiap siswa, dan tindak lanjuti dengan sesi latihan terfokus.
+            Pantau pengelompokan kesiapan siswa SMP Negeri 2 Kalibaru, cek kisi-kisi terlemah tiap kandidat, dan tindak lanjuti dengan sesi latihan terfokus.
           </p>
         </div>
 
@@ -457,15 +460,29 @@ export function AdminResultsView({
       {/* Filters & Results */}
       <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="relative min-w-[220px] flex-1 max-w-md">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari nama siswa atau asal sekolah..."
-              className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
-            />
+          <div className="flex flex-wrap items-center gap-3 flex-1">
+            <div className="relative min-w-[220px] flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari nama siswa atau paket ujian..."
+                className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+              />
+            </div>
+
+            <select
+              value={gradeFilter}
+              onChange={(e) => setGradeFilter(e.target.value as 'ALL' | '7' | '8' | '9')}
+              aria-label="Filter Kelas"
+              className="px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+            >
+              <option value="ALL">Semua Kelas</option>
+              <option value="7">Kelas 7</option>
+              <option value="8">Kelas 8</option>
+              <option value="9">Kelas 9</option>
+            </select>
           </div>
 
           <div className="text-xs font-mono tabular-nums text-slate-500">

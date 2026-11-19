@@ -18,6 +18,7 @@ import { analyzeAttempt, QUESTION_BANK, QUESTION_BY_ID } from '../data/questionB
 import {
   CbtAttempt,
   CognitiveLevel,
+  JUKNIS_CONSTANTS,
   OptionKey,
   StudentProfile,
   SYLLABUS_BLUEPRINT,
@@ -54,7 +55,7 @@ export function AnalyticsView({
 
   const [manualStudent, setManualStudent] = useState<StudentProfile>({
     name: '',
-    school: '',
+    school: JUKNIS_CONSTANTS.SCHOOL_NAME,
     grade: '8',
   });
   const [manualRawAnswers, setManualRawAnswers] = useState('');
@@ -263,7 +264,7 @@ export function AnalyticsView({
       <section className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6 pb-6 border-b border-slate-200">
         <div className="space-y-2 max-w-2xl">
           <p className="text-xs font-medium text-blue-700">
-            Admin Panel · Diagnostik Kisi-Kisi & Kesiapan Olimpiade (+4 / -1 / 0)
+            Admin Panel {JUKNIS_CONSTANTS.SCHOOL_NAME} · Diagnostik Kisi-Kisi & Kesiapan (+4 / -1 / 0)
           </p>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 [text-wrap:balance]">
             Analisa Kemampuan, Kesiapan & Saran Pembinaan
@@ -602,7 +603,7 @@ export function AnalyticsView({
                 const scoreIfSkippedWrong = analysis.netScore + analysis.penaltyLostPoints;
                 const verdictText =
                   analysis.readinessTier === 'Sangat Siap (Target Top 25 Finalis)'
-                    ? 'Layak Diutus sebagai Kontingen Utama Olimpiade'
+                    ? 'Layak Diutus sebagai Kontingen Utama SMP Negeri 2 Kalibaru'
                     : analysis.readinessTier === 'Kompetitif (Potensi Lolos)'
                     ? 'Layak Bertanding dengan Penguatan Materi Prioritas'
                     : 'Perlu Pembinaan Terstruktur Sebelum Lomba';

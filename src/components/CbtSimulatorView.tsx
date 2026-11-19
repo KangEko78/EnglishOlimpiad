@@ -1,19 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  Award,
   BookOpenText,
   CheckCircle2,
   Clock,
+  Compass,
   Eraser,
   Flag,
   LayoutGrid,
   Play,
+  Printer,
   RotateCcw,
   ShieldAlert,
+  Target,
+  TrendingUp,
 } from 'lucide-react';
+import heroStudyImg from '../assets/images/hero_olympiad_study_1795062081970.jpg';
+import laurelEmblemImg from '../assets/images/olympiad_laurel_emblem_1795062082827.jpg';
 import { analyzeAttempt, QUESTION_BANK, QUESTION_BY_ID } from '../data/questionBank';
 import {
   CbtAttempt,
@@ -54,6 +61,27 @@ function buildDiagnostic21Ids(): number[] {
   return picked.sort((a, b) => a - b);
 }
 
+function getMotivationalMilestone(answeredCount: number, total: number): string {
+  if (total === 0) return '';
+  const ratio = answeredCount / total;
+  if (answeredCount === 0) {
+    return 'Mulai dengan tenang. Baca teks secara cermat dan hindari menebak asal (-1).';
+  }
+  if (ratio < 0.25) {
+    return 'Langkah awal yang bagus — jaga ketelitian membaca konteks paragraf.';
+  }
+  if (ratio < 0.5) {
+    return 'Ritme terjaga dengan baik. Tandai soal ragu agar mudah ditinjau ulang.';
+  }
+  if (ratio < 0.75) {
+    return 'Lebih dari setengah ujian terlewati — fokuskan energi pada ketepatan analisa.';
+  }
+  if (ratio < 1) {
+    return 'Tahap akhir menuju garis finis! Periksa kembali butir yang masih kosong atau ragu.';
+  }
+  return 'Seluruh soal telah terjawab. Tinjau ulang sejenak sebelum mengumpulkan.';
+}
+
 export function CbtSimulatorView({
   initialPreset,
   isAdminMode,
@@ -62,7 +90,7 @@ export function CbtSimulatorView({
 }: CbtSimulatorViewProps) {
   const [student, setStudent] = useState<StudentProfile>({
     name: '',
-    school: '',
+    school: JUKNIS_CONSTANTS.SCHOOL_NAME,
     grade: '8',
   });
   const [modeChoice, setModeChoice] = useState<ExamModeChoice>(
@@ -75,6 +103,14 @@ export function CbtSimulatorView({
     initialPreset?.level ?? 'ALL'
   );
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Interactive strategy simulator sliders (educational simulation on lobby)
+  const [simCorrect, setSimCorrect] = useState(74);
+  const [simWrong, setSimWrong] = useState(10);
+
+  // Visual asset fallback toggles
+  const [heroImgFailed, setHeroImgFailed] = useState(false);
+  const [emblemImgFailed, setEmblemImgFailed] = useState(false);
 
   // Active exam state
   const [activeSession, setActiveSession] = useState<CbtSessionConfig | null>(null);
@@ -120,7 +156,7 @@ export function CbtSimulatorView({
     if (modeChoice === 'full_preliminary') {
       return {
         mode: 'full_preliminary',
-        title: 'Simulasi Penuh Babak Penyisihan (Juknis 2026)',
+        title: 'Simulasi Penuh Babak Penyisihan (Standar Juknis)',
         questionIds: QUESTION_BANK.map((q) => q.id),
         durationMinutes: JUKNIS_CONSTANTS.PRELIMINARY_DURATION_MINUTES,
       };
@@ -143,6 +179,25 @@ export function CbtSimulatorView({
       durationMinutes: minutes,
     };
   }, [modeChoice, focusedDomain, focusedLevel, focusedQuestionIds, diagnostic21Ids]);
+
+  const clampedSimWrong = Math.min(simWrong, 100 - simCorrect);
+  const simSkipped = 100 - simCorrect - clampedSimWrong;
+  const simNetScore = simCorrect * 4 - clampedSimWrong;
+  const simPercent = Math.max(0, Math.round((simNetScore / 400) * 100));
+
+  const startSessionWithConfig = (session: CbtSessionConfig) => {
+    setFormError(null);
+    setCompletedReceipt(null);
+    setActiveSession(session);
+    setStartedAtIso(new Date().toISOString());
+    setCurrentIndex(0);
+    setAnswers({});
+    setFlaggedIds([]);
+    setSecondsLeft(session.durationMinutes * 60);
+    setShowSubmitConfirm(false);
+    setShowQuestionNav(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const finishExam = async (
     session: CbtSessionConfig,
@@ -177,6 +232,7 @@ export function CbtSimulatorView({
     setShowSubmitConfirm(false);
     setIsSubmitting(false);
     setCompletedReceipt({ attempt, syncedToSheets: res.syncedToSheets });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   useEffect(() => {
@@ -211,27 +267,43 @@ export function CbtSimulatorView({
 
   const handleStartExam = () => {
     if (!student.name.trim() || !student.school.trim()) {
-      setFormError('Lengkapi Nama Siswa dan Asal Sekolah SMP/MTs terlebih dahulu sebelum memulai CBT.');
+      setFormError('Lengkapi Nama Lengkap Siswa terlebih dahulu sebelum memulai ujian CBT.');
       return;
     }
     if (previewConfig.questionIds.length === 0) {
       setFormError('Kombinasi filter latihan menghasilkan 0 soal. Ubah pilihan kisi-kisi atau level.');
       return;
     }
-    setFormError(null);
-    setCompletedReceipt(null);
-    setActiveSession(previewConfig);
-    setStartedAtIso(new Date().toISOString());
-    setCurrentIndex(0);
-    setAnswers({});
-    setFlaggedIds([]);
-    setSecondsLeft(previewConfig.durationMinutes * 60);
-    setShowSubmitConfirm(false);
+    startSessionWithConfig(previewConfig);
   };
 
-  // ================= STUDENT COMPLETION RECEIPT =================
+  // ================= STUDENT COMPLETION CERTIFICATE / READINESS RECEIPT =================
   if (completedReceipt) {
     const receiptAnalysis = analyzeAttempt(completedReceipt.attempt);
+    const sortedDomains = [...receiptAnalysis.domainBreakdown].sort(
+      (a, b) => a.accuracyPercent - b.accuracyPercent
+    );
+    const weakestDomain = sortedDomains[0];
+
+    const motivationalMessage =
+      receiptAnalysis.readinessTier === 'Sangat Siap (Target Top 25 Finalis)'
+        ? 'Performa luar biasa! Pertahankan ketelitian dan lanjutkan mengasah sesi Listening untuk Babak Final.'
+        : receiptAnalysis.readinessTier === 'Kompetitif (Potensi Lolos)'
+        ? 'Pondasi Anda sudah kuat dan berpeluang besar menembus Top 25. Pertajam domain terlemah di bawah untuk mengamankan posisi Finalis.'
+        : 'Langkah awal yang berharga! Gunakan hasil pemetaan di bawah sebagai kompas latihan berikutnya — setiap sesi membuat kemampuan analisamu makin tajam.';
+
+    const handleLaunchWeakestDrill = () => {
+      if (!weakestDomain) return;
+      const drillIds = QUESTION_BANK.filter((q) => q.domain === weakestDomain.domain).map((q) => q.id);
+      const minutes = Math.max(8, Math.ceil((drillIds.length * 72) / 60));
+      startSessionWithConfig({
+        mode: 'focused_drill',
+        title: `Latihan Penguatan: ${weakestDomain.domain}`,
+        questionIds: drillIds,
+        durationMinutes: minutes,
+      });
+    };
+
     return (
       <motion.div
         initial={{ opacity: 0, y: 12 }}
@@ -240,23 +312,72 @@ export function CbtSimulatorView({
         className="max-w-4xl mx-auto py-4 sm:py-6 space-y-6"
       >
         <div className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8 space-y-6">
-          <div className="flex items-start gap-3.5 pb-5 border-b border-slate-100">
-            <CheckCircle2 className="w-6 h-6 text-emerald-700 shrink-0 mt-0.5" />
+          {/* Certificate Top Header with Academic Seal */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200">
+            <div className="flex items-start gap-4">
+              {emblemImgFailed ? (
+                <div className="w-16 h-16 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0">
+                  <Award className="w-7 h-7 text-blue-700" />
+                </div>
+              ) : (
+                <img
+                  src={laurelEmblemImg}
+                  alt="Lambang Kehormatan Olimpiade Bahasa Inggris SMP Negeri 2 Kalibaru"
+                  referrerPolicy="no-referrer"
+                  onError={() => setEmblemImgFailed(true)}
+                  className="w-16 h-16 rounded-lg object-cover border border-slate-200 shrink-0"
+                />
+              )}
+
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-blue-700">
+                  Laporan Kesiapan Olimpiade · {JUKNIS_CONSTANTS.SCHOOL_NAME}
+                </p>
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+                  {completedReceipt.attempt.student.name}
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-600">
+                  {completedReceipt.attempt.student.school} · Kelas {completedReceipt.attempt.student.grade} · {completedReceipt.attempt.configTitle}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {completedReceipt.syncedToSheets
+                    ? 'Tercatat di Database Spreadsheet SMP Negeri 2 Kalibaru untuk telaah Pembina.'
+                    : 'Tersimpan di perangkat ini. Anda dapat mencetak laporan ini sebagai arsip latihan.'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer no-print"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              Cetak Sertifikat Hasil
+            </button>
+          </div>
+
+          {/* Readiness Banner */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
-              <h1 className="text-xl font-bold text-slate-900">
-                Ujian CBT Selesai & Tersimpan
-              </h1>
-              <p className="text-sm text-slate-600">
-                {completedReceipt.attempt.student.name} · {completedReceipt.attempt.student.school} · Kelas {completedReceipt.attempt.student.grade}
+              <div className="flex items-center gap-2 text-xs font-semibold text-blue-700">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>Predikat Kesiapan Olimpiade</span>
+              </div>
+              <div className="text-lg font-bold text-slate-900">{receiptAnalysis.readinessTier}</div>
+              <p className="text-xs text-slate-600 leading-relaxed max-w-xl">
+                {motivationalMessage}
               </p>
-              <p className="text-xs text-slate-500">
-                {completedReceipt.syncedToSheets
-                  ? 'Hasil telah dikirim ke Database Spreadsheet Olimpiade dan siap ditelaah oleh Pembina di Admin Panel.'
-                  : 'Hasil tersimpan pada perangkat ini. Pembina dapat menelaah butir soal lengkap melalui Admin Panel.'}
-              </p>
+            </div>
+            <div className="sm:text-right shrink-0">
+              <div className="text-xs text-slate-500">Indeks Kesiapan</div>
+              <div className="text-3xl font-bold text-blue-700 font-mono tabular-nums">
+                {receiptAnalysis.normalizedPercent}%
+              </div>
             </div>
           </div>
 
+          {/* 4-Metric Score Strip */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-slate-50 rounded-lg p-4">
               <div className="text-xs text-slate-500">Skor Olimpiade</div>
@@ -285,21 +406,11 @@ export function CbtSimulatorView({
             </div>
           </div>
 
-          <div className="bg-blue-50/70 border border-blue-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <div className="text-xs font-medium text-blue-800">Predikat Kesiapan Olimpiade</div>
-              <div className="text-base font-bold text-slate-900">{receiptAnalysis.readinessTier}</div>
-            </div>
-            <div className="text-2xl font-bold text-blue-700 font-mono tabular-nums">
-              {receiptAnalysis.normalizedPercent}%
-            </div>
-          </div>
-
           {/* Kisi-Kisi & Cognitive Readiness Breakdown */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
             <div className="space-y-3">
               <h2 className="text-sm font-semibold text-slate-900">
-                Analisa Penguasaan Kisi-Kisi
+                Peta Penguasaan Kisi-Kisi
               </h2>
               <div className="space-y-2.5">
                 {receiptAnalysis.domainBreakdown.map((d, idx) => {
@@ -368,7 +479,7 @@ export function CbtSimulatorView({
 
               <div className="bg-slate-50 rounded-lg p-4 space-y-2">
                 <h3 className="text-xs font-semibold text-slate-900">
-                  Saran Peningkatan Kesiapan
+                  Kompas Latihan Berikutnya
                 </h3>
                 <ul className="space-y-1.5 text-xs text-slate-700 leading-relaxed">
                   {receiptAnalysis.recommendations.map((rec, i) => (
@@ -382,28 +493,41 @@ export function CbtSimulatorView({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100 no-print">
             <button
               type="button"
               onClick={() => {
                 setCompletedReceipt(null);
-                setStudent({ name: '', school: '', grade: '8' });
+                setStudent({ name: '', school: JUKNIS_CONSTANTS.SCHOOL_NAME, grade: '8' });
               }}
               className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
-              Mulai Sesi Peserta Berikutnya
+              Ganti Peserta / Kembali ke Lobi
             </button>
 
-            {isAdminMode && onOpenAdminAnalytics && (
-              <button
-                type="button"
-                onClick={() => onOpenAdminAnalytics(completedReceipt.attempt.id)}
-                className="px-4 py-2.5 text-sm font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 cursor-pointer"
-              >
-                Buka Analisa Kisi-Kisi Lengkap
-              </button>
-            )}
+            <div className="flex flex-wrap items-center gap-2.5">
+              {weakestDomain && weakestDomain.accuracyPercent < 85 && (
+                <button
+                  type="button"
+                  onClick={handleLaunchWeakestDrill}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors cursor-pointer"
+                >
+                  <TrendingUp className="w-4 h-4" />
+                  Latih Materi Terlemah: {weakestDomain.domain}
+                </button>
+              )}
+
+              {isAdminMode && onOpenAdminAnalytics && (
+                <button
+                  type="button"
+                  onClick={() => onOpenAdminAnalytics(completedReceipt.attempt.id)}
+                  className="px-4 py-2.5 text-sm font-semibold text-slate-900 bg-slate-100 rounded-lg hover:bg-slate-200 cursor-pointer"
+                >
+                  Buka Analisa Kisi-Kisi Lengkap
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </motion.div>
@@ -417,8 +541,11 @@ export function CbtSimulatorView({
     const selectedOption = answers[currentQId];
     const isFlagged = flaggedIds.includes(currentQId);
     const answeredCount = Object.keys(answers).length;
-    const unansweredCount = activeSession.questionIds.length - answeredCount;
+    const totalCount = activeSession.questionIds.length;
+    const unansweredCount = totalCount - answeredCount;
+    const progressPercent = totalCount > 0 ? Math.round((answeredCount / totalCount) * 100) : 0;
     const isLowTime = secondsLeft <= 300;
+    const milestoneText = getMotivationalMilestone(answeredCount, totalCount);
 
     const toggleFlag = () => {
       setFlaggedIds((prev) =>
@@ -436,42 +563,62 @@ export function CbtSimulatorView({
 
     return (
       <div className="space-y-6">
-        <div className="bg-white border border-slate-200 rounded-xl px-5 py-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="space-y-0.5">
-            <div className="text-xs text-slate-500">
-              {student.name} · {student.school} · Kelas {student.grade}
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <div className="text-xs text-slate-500">
+                {student.name} · {student.school} · Kelas {student.grade}
+              </div>
+              <h2 className="text-base font-semibold text-slate-900">{activeSession.title}</h2>
             </div>
-            <h2 className="text-base font-semibold text-slate-900">{activeSession.title}</h2>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowQuestionNav((v) => !v)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                {showQuestionNav ? 'Sembunyikan Navigasi' : 'Tampilkan Navigasi'}
+              </button>
+
+              <div
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg border font-mono tabular-nums text-sm font-semibold ${
+                  isLowTime
+                    ? 'bg-rose-50 border-rose-200 text-rose-700'
+                    : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}
+              >
+                <Clock className="w-4 h-4 shrink-0" />
+                <span>{formatTimer(secondsLeft)}</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowSubmitConfirm(true)}
+                className="px-4 py-2 text-sm font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                Kumpulkan Ujian
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setShowQuestionNav((v) => !v)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              {showQuestionNav ? 'Sembunyikan Navigasi' : 'Tampilkan Navigasi'}
-            </button>
-
-            <div
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg border font-mono tabular-nums text-sm font-semibold ${
-                isLowTime
-                  ? 'bg-rose-50 border-rose-200 text-rose-700'
-                  : 'bg-slate-50 border-slate-200 text-slate-900'
-              }`}
-            >
-              <Clock className="w-4 h-4 shrink-0" />
-              <span>{formatTimer(secondsLeft)}</span>
+          {/* Animated Progress Strip & Encouraging Milestone */}
+          <div className="px-5 py-2.5 bg-slate-50/80 border-t border-slate-100 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="text-slate-600">{milestoneText}</span>
+              <span className="font-mono tabular-nums font-semibold text-blue-700">
+                {answeredCount}/{totalCount} Terjawab ({progressPercent}%)
+              </span>
             </div>
-
-            <button
-              type="button"
-              onClick={() => setShowSubmitConfirm(true)}
-              className="px-4 py-2 text-sm font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              Kumpulkan Ujian
-            </button>
+            <div className="h-1.5 w-full bg-slate-200/80 rounded-full overflow-hidden">
+              <motion.div
+                initial={false}
+                animate={{ scaleX: progressPercent / 100 }}
+                transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                className="h-full w-full origin-left bg-blue-700 rounded-full"
+              />
+            </div>
           </div>
         </div>
 
@@ -481,63 +628,74 @@ export function CbtSimulatorView({
               showQuestionNav ? 'lg:col-span-8' : 'lg:col-span-12'
             } bg-white border border-slate-200 rounded-xl p-6 space-y-6`}
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-100">
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <span className="font-mono font-bold text-slate-900 tabular-nums">
-                  Butir {currentIndex + 1} / {activeSession.questionIds.length}
-                </span>
-                <span aria-hidden="true">·</span>
-                <span className="font-medium text-slate-700">{currentQuestion.domain}</span>
-              </div>
-              <span className="text-xs font-mono text-slate-400">
-                No. {String(currentQuestion.id).padStart(3, '0')}
-              </span>
-            </div>
-
-            {currentQuestion.passage && (
-              <div className="bg-slate-50 border border-slate-200/80 rounded-lg p-5 space-y-2.5 max-h-[340px] overflow-y-auto">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-                  <BookOpenText className="w-4 h-4 text-slate-500 shrink-0" />
-                  <span>{currentQuestion.passageTitle ?? 'Reading Passage'}</span>
-                </div>
-                <div className="font-serif text-[15px] leading-relaxed text-slate-800 whitespace-pre-line">
-                  {currentQuestion.passage}
-                </div>
-              </div>
-            )}
-
-            <div className="text-base font-medium text-slate-900 leading-relaxed whitespace-pre-line">
-              {currentQuestion.question}
-            </div>
-
-            <div className="space-y-3">
-              {(['A', 'B', 'C', 'D'] as const).map((opt) => {
-                const isSelected = selectedOption === opt;
-                return (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => setAnswers((prev) => ({ ...prev, [currentQId]: opt }))}
-                    className={`w-full text-left flex items-start gap-3.5 px-4 py-3.5 rounded-lg border transition-colors cursor-pointer ${
-                      isSelected
-                        ? 'bg-blue-50 border-blue-600 text-blue-950 font-medium'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
-                    }`}
-                  >
-                    <span
-                      className={`w-6 h-6 rounded-md flex items-center justify-center font-mono text-xs font-bold shrink-0 mt-0.5 ${
-                        isSelected ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {opt}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={currentQuestion.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                className="space-y-6"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-100">
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <span className="font-mono font-bold text-slate-900 tabular-nums">
+                      Butir {currentIndex + 1} / {activeSession.questionIds.length}
                     </span>
-                    <span className="text-sm sm:text-[15px] leading-snug">
-                      {currentQuestion.options[opt]}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-medium text-slate-700">{currentQuestion.domain}</span>
+                  </div>
+                  <span className="text-xs font-mono text-slate-400">
+                    No. {String(currentQuestion.id).padStart(3, '0')}
+                  </span>
+                </div>
+
+                {currentQuestion.passage && (
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-lg p-5 space-y-2.5 max-h-[340px] overflow-y-auto">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                      <BookOpenText className="w-4 h-4 text-slate-500 shrink-0" />
+                      <span>{currentQuestion.passageTitle ?? 'Reading Passage'}</span>
+                    </div>
+                    <div className="font-serif text-[15px] leading-relaxed text-slate-800 whitespace-pre-line">
+                      {currentQuestion.passage}
+                    </div>
+                  </div>
+                )}
+
+                <div className="text-base font-medium text-slate-900 leading-relaxed whitespace-pre-line">
+                  {currentQuestion.question}
+                </div>
+
+                <div className="space-y-3">
+                  {(['A', 'B', 'C', 'D'] as const).map((opt) => {
+                    const isSelected = selectedOption === opt;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => setAnswers((prev) => ({ ...prev, [currentQId]: opt }))}
+                        className={`w-full text-left flex items-start gap-3.5 px-4 py-3.5 rounded-lg border transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-50 border-blue-600 text-blue-950 font-medium'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                        }`}
+                      >
+                        <span
+                          className={`w-6 h-6 rounded-md flex items-center justify-center font-mono text-xs font-bold shrink-0 mt-0.5 ${
+                            isSelected ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {opt}
+                        </span>
+                        <span className="text-sm sm:text-[15px] leading-snug">
+                          {currentQuestion.options[opt]}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            </AnimatePresence>
 
             <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -668,7 +826,7 @@ export function CbtSimulatorView({
                     Konfirmasi Pengumpulan Ujian CBT
                   </h3>
                   <p className="text-sm text-slate-600 leading-relaxed">
-                    Jawaban yang dikumpulkan akan otomatis dinilai dengan sistem +4 / -1 / 0 dan dikirim ke database panitia.
+                    Jawaban yang dikumpulkan akan otomatis dinilai dengan sistem +4 / -1 / 0 dan dikirim ke database pembina SMP Negeri 2 Kalibaru.
                   </p>
                 </div>
               </div>
@@ -719,23 +877,87 @@ export function CbtSimulatorView({
     );
   }
 
-  // ================= CBT LOBBY / SETUP SCREEN =================
+  // ================= CBT LOBBY / MOTIVATIONAL HERO + MISSION SETUP =================
   return (
     <div className="space-y-8">
-      <section className="pb-6 border-b border-slate-200 space-y-2 max-w-3xl">
-        <p className="text-xs font-medium text-blue-700">
-          {JUKNIS_CONSTANTS.EVENT_NAME} · {JUKNIS_CONSTANTS.ORGANIZER}
-        </p>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900 [text-wrap:balance]">
-          Portal Ujian CBT Olimpiade Bahasa Inggris
-        </h1>
-        <p className="text-sm text-slate-600 leading-relaxed">
-          Isi identitas peserta dengan benar sebelum memulai ujian. Sistem menerapkan aturan skor resmi Babak Penyisihan (+4 benar, -1 salah, 0 kosong).
-        </p>
-      </section>
+      {/* Split Hero Banner */}
+      <motion.section
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+        className="bg-white border border-slate-200 rounded-xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 items-stretch"
+      >
+        <div className="lg:col-span-7 p-6 sm:p-8 lg:p-10 flex flex-col justify-between gap-8">
+          <div className="space-y-3 max-w-2xl">
+            <p className="text-xs font-medium text-blue-700">
+              Program Prestasi Bahasa Inggris · {JUKNIS_CONSTANTS.SCHOOL_NAME}
+            </p>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-slate-900 [text-wrap:balance]">
+              Road to Finalis Olimpiade Bahasa Inggris 2026
+            </h1>
+            <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
+              Setiap latihan terukur membawa kontingen SMP Negeri 2 Kalibaru semakin dekat ke jajaran Top 25 Finalis Kabupaten Banyuwangi. Kuasai 7 kisi-kisi resmi dan asah ketajaman logika HOTS Anda di sini.
+            </p>
+          </div>
 
+          <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-100">
+            <div>
+              <div className="text-xs text-slate-500">Target Seleksi</div>
+              <div className="mt-1 text-lg sm:text-xl font-bold font-mono tabular-nums text-slate-900">
+                Top 25 Finalis
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Durasi Penyisihan</div>
+              <div className="mt-1 text-lg sm:text-xl font-bold font-mono tabular-nums text-slate-900">
+                120 Menit
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Skor Target Aman</div>
+              <div className="mt-1 text-lg sm:text-xl font-bold font-mono tabular-nums text-blue-700">
+                ≥ 280 Poin
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="lg:col-span-5 relative min-h-[240px] lg:min-h-full bg-slate-900">
+          {heroImgFailed ? (
+            <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-br from-blue-950 via-slate-900 to-slate-800 text-white">
+              <Compass className="w-10 h-10 text-blue-300 mb-3" />
+              <p className="font-serif italic text-lg text-slate-100">
+                “Discipline in practice builds calm confidence on competition day.”
+              </p>
+              <p className="text-xs text-slate-400 mt-2">
+                {JUKNIS_CONSTANTS.SCHOOL_NAME} · English Olympiad Team 2026
+              </p>
+            </div>
+          ) : (
+            <>
+              <img
+                src={heroStudyImg}
+                alt="Meja belajar Olimpiade Bahasa Inggris SMP Negeri 2 Kalibaru dengan pemandangan pegunungan pagi hari"
+                referrerPolicy="no-referrer"
+                onError={() => setHeroImgFailed(true)}
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/30 to-transparent flex flex-col justify-end p-6 sm:p-7">
+                <p className="font-serif italic text-sm sm:text-base text-white/95 leading-snug">
+                  “Read beyond the lines, weigh every clue, and let preparation speak for {JUKNIS_CONSTANTS.SCHOOL_SHORT}.”
+                </p>
+                <p className="text-xs text-slate-300 mt-1.5">
+                  Tim Pembinaan Olimpiade · {JUKNIS_CONSTANTS.SCHOOL_NAME}
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      </motion.section>
+
+      {/* Main Workspace Split: Setup Form + Interactive Scoring Strategy */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-6 space-y-6">
+        <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-6 sm:p-7 space-y-6">
           <div className="space-y-4">
             <h2 className="text-base font-semibold text-slate-900">1. Identitas Peserta</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -755,15 +977,14 @@ export function CbtSimulatorView({
 
               <div className="sm:col-span-1 space-y-1.5">
                 <label className="block text-xs font-medium text-slate-700" htmlFor="student-school">
-                  Asal Sekolah (SMP/MTs)
+                  Sekolah
                 </label>
                 <input
                   id="student-school"
                   type="text"
+                  readOnly
                   value={student.school}
-                  onChange={(e) => setStudent((s) => ({ ...s, school: e.target.value }))}
-                  placeholder="Contoh: SMPN 2 Kabat"
-                  className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600"
+                  className="w-full px-3 py-2 text-sm bg-slate-100 border border-slate-200 rounded-lg text-slate-700 font-medium cursor-default focus:outline-none"
                 />
               </div>
 
@@ -788,7 +1009,7 @@ export function CbtSimulatorView({
           </div>
 
           <div className="pt-4 border-t border-slate-100 space-y-4">
-            <h2 className="text-base font-semibold text-slate-900">2. Pilih Paket Ujian CBT</h2>
+            <h2 className="text-base font-semibold text-slate-900">2. Pilih Misi Latihan CBT</h2>
 
             <div className="grid grid-cols-1 gap-3">
               <button
@@ -804,12 +1025,12 @@ export function CbtSimulatorView({
                   <span className="text-sm font-semibold text-slate-900">
                     Simulasi Penuh Babak Penyisihan (Standar Juknis)
                   </span>
-                  <span className="text-xs font-mono tabular-nums font-semibold text-blue-700">
+                  <span className="text-xs font-mono tabular-nums font-semibold text-blue-700 whitespace-nowrap shrink-0">
                     100 Soal · 120 Menit
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">
-                  Seluruh 100 butir soal LOTS, MOTS, dan HOTS dengan durasi resmi 120 menit dan skor maksimal 400.
+                  Uji ketahanan konsentrasi penuh 100 butir LOTS, MOTS, dan HOTS dengan standar penilaian resmi skor maksimal 400.
                 </p>
               </button>
 
@@ -824,14 +1045,14 @@ export function CbtSimulatorView({
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold text-slate-900">
-                    Tes Diagnostik Cepat Kisi-Kisi
+                    Tes Diagnostik Cepat 7 Kisi-Kisi
                   </span>
-                  <span className="text-xs font-mono tabular-nums font-semibold text-blue-700">
+                  <span className="text-xs font-mono tabular-nums font-semibold text-blue-700 whitespace-nowrap shrink-0">
                     21 Soal · 25 Menit
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">
-                  3 soal representatif (LOTS, MOTS, HOTS) dari masing-masing 7 kisi-kisi untuk pemetaan kemampuan secara cepat.
+                  Ukur kekuatan awalmu di seluruh 7 materi (Descriptive hingga Grammar) hanya dalam 25 menit sebelum mendalami latihan khusus.
                 </p>
               </button>
 
@@ -848,13 +1069,13 @@ export function CbtSimulatorView({
                   <span className="text-sm font-semibold text-slate-900">
                     Latihan Terfokus per Kisi-Kisi
                   </span>
-                  <span className="text-xs font-mono tabular-nums font-semibold text-blue-700">
+                  <span className="text-xs font-mono tabular-nums font-semibold text-blue-700 whitespace-nowrap shrink-0">
                     {focusedQuestionIds.length} Soal ·{' '}
                     {Math.max(5, Math.ceil((focusedQuestionIds.length * 72) / 60))} Menit
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">
-                  Pilih domain materi dan tingkat kesulitan tertentu sesuai arahan pembina olimpiade.
+                  Pertajam penguasaan domain atau tingkat kesulitan tertentu (LOTS, MOTS, atau HOTS) sesuai target latihanmu.
                 </p>
               </button>
             </div>
@@ -907,11 +1128,15 @@ export function CbtSimulatorView({
             </div>
           )}
 
-          <div className="pt-2 flex justify-end">
+          <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <p className="text-xs text-slate-500">
+              Paket terpilih: <span className="font-semibold text-slate-800">{previewConfig.questionIds.length} soal</span> ·{' '}
+              <span className="font-mono tabular-nums">{previewConfig.durationMinutes} menit</span>
+            </p>
             <button
               type="button"
               onClick={handleStartExam}
-              className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Play className="w-4 h-4" />
               Mulai Ujian CBT Sekarang
@@ -919,38 +1144,118 @@ export function CbtSimulatorView({
           </div>
         </div>
 
-        <aside className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-          <h3 className="text-base font-semibold text-slate-900">Ringkasan Paket Terpilih</h3>
-          <dl className="divide-y divide-slate-100 text-sm">
-            <div className="py-2.5 flex justify-between gap-2">
-              <dt className="text-slate-500">Paket</dt>
-              <dd className="font-medium text-slate-900 text-right">{previewConfig.title}</dd>
+        {/* Interactive Strategy Simulator & Readiness Benchmarks */}
+        <aside className="lg:col-span-4 space-y-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-blue-700 shrink-0" />
+              <h3 className="text-sm font-semibold text-slate-900">
+                Simulasi Strategi Skor (+4 / -1 / 0)
+              </h3>
             </div>
-            <div className="py-2.5 flex justify-between gap-2">
-              <dt className="text-slate-500">Jumlah Soal</dt>
-              <dd className="font-mono tabular-nums font-semibold text-slate-900">
-                {previewConfig.questionIds.length} butir
-              </dd>
-            </div>
-            <div className="py-2.5 flex justify-between gap-2">
-              <dt className="text-slate-500">Batas Waktu</dt>
-              <dd className="font-mono tabular-nums font-semibold text-slate-900">
-                {previewConfig.durationMinutes} menit
-              </dd>
-            </div>
-            <div className="py-2.5 flex justify-between gap-2">
-              <dt className="text-slate-500">Skor Maksimal</dt>
-              <dd className="font-mono tabular-nums font-semibold text-slate-900">
-                {previewConfig.questionIds.length * 4} poin
-              </dd>
-            </div>
-          </dl>
-
-          <div className="bg-slate-50 rounded-lg p-4 space-y-2 text-xs text-slate-600 leading-relaxed">
-            <p className="font-semibold text-slate-900">Aturan Penilaian & Strategi:</p>
-            <p>
-              Jawaban benar bernilai <span className="font-mono font-semibold text-emerald-700">+4</span>, salah <span className="font-mono font-semibold text-rose-700">-1</span>, dan tidak dijawab <span className="font-mono font-semibold">0</span>. Gunakan tombol Kosongkan bila tidak yakin untuk menghindari pengurangan nilai.
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Geser simulasi di bawah untuk melihat mengapa mengosongkan soal ragu (<span className="font-mono font-semibold">0</span>) jauh lebih aman dibanding menebak asal (<span className="font-mono font-semibold text-rose-700">-1</span>).
             </p>
+
+            <div className="space-y-3 pt-1">
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs">
+                  <label htmlFor="sim-correct" className="font-medium text-slate-700">
+                    Jawaban Benar (+4)
+                  </label>
+                  <span className="font-mono tabular-nums font-bold text-emerald-700">
+                    {simCorrect} soal
+                  </span>
+                </div>
+                <input
+                  id="sim-correct"
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={simCorrect}
+                  onChange={(e) => {
+                    const nextCorrect = Number(e.target.value);
+                    setSimCorrect(nextCorrect);
+                    if (simWrong > 100 - nextCorrect) {
+                      setSimWrong(100 - nextCorrect);
+                    }
+                  }}
+                  className="w-full accent-blue-700 cursor-pointer"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs">
+                  <label htmlFor="sim-wrong" className="font-medium text-slate-700">
+                    Tebakan Salah (-1)
+                  </label>
+                  <span className="font-mono tabular-nums font-bold text-rose-700">
+                    {clampedSimWrong} soal
+                  </span>
+                </div>
+                <input
+                  id="sim-wrong"
+                  type="range"
+                  min={0}
+                  max={100 - simCorrect}
+                  value={clampedSimWrong}
+                  onChange={(e) => setSimWrong(Number(e.target.value))}
+                  className="w-full accent-rose-600 cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-lg p-3.5 space-y-2.5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-xs text-slate-600">Estimasi Skor Bersih</span>
+                <span className="text-xl font-bold font-mono tabular-nums text-slate-900">
+                  {simNetScore}{' '}
+                  <span className="text-xs font-normal text-slate-500">/ 400 ({simPercent}%)</span>
+                </span>
+              </div>
+              <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                <motion.div
+                  initial={false}
+                  animate={{ scaleX: simPercent / 100 }}
+                  transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                  className={`h-full w-full origin-left rounded-full ${
+                    simPercent >= 70
+                      ? 'bg-emerald-600'
+                      : simPercent >= 50
+                      ? 'bg-blue-600'
+                      : 'bg-amber-600'
+                  }`}
+                />
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Dikosongkan: <span className="font-mono font-semibold">{simSkipped} soal</span>.{' '}
+                {simNetScore >= 280
+                  ? 'Sudah menembus zona aman Target Top 25 Finalis (≥ 280 poin).'
+                  : `Butuh +${280 - simNetScore} poin lagi untuk mencapai zona aman Finalis (280 poin).`}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-3">
+            <h3 className="text-sm font-semibold text-slate-900">Tangga Predikat Kesiapan</h3>
+            <dl className="divide-y divide-slate-100 text-xs">
+              <div className="py-2 flex items-center justify-between gap-2">
+                <dt className="font-semibold text-emerald-700">Sangat Siap (Target Finalis)</dt>
+                <dd className="font-mono tabular-nums text-slate-700">≥ 70%</dd>
+              </div>
+              <div className="py-2 flex items-center justify-between gap-2">
+                <dt className="font-semibold text-blue-700">Kompetitif (Potensi Lolos)</dt>
+                <dd className="font-mono tabular-nums text-slate-700">50% – 69%</dd>
+              </div>
+              <div className="py-2 flex items-center justify-between gap-2">
+                <dt className="font-semibold text-amber-700">Penguatan Intensif</dt>
+                <dd className="font-mono tabular-nums text-slate-700">30% – 49%</dd>
+              </div>
+              <div className="py-2 flex items-center justify-between gap-2">
+                <dt className="font-semibold text-rose-700">Pembinaan Dasar</dt>
+                <dd className="font-mono tabular-nums text-slate-700">&lt; 30%</dd>
+              </div>
+            </dl>
           </div>
         </aside>
       </div>

@@ -250,7 +250,7 @@ export default function App() {
             }}
             className="text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0 cursor-pointer"
           >
-            MGMP Olympiad Lab
+            SMPN 2 Kalibaru · Olympiad CBT
           </button>
 
           {inAdminWorkspace ? (
@@ -407,7 +407,7 @@ export default function App() {
       {/* Quiet Footer with discreet Admin Panel access */}
       <footer className="border-t border-slate-200 bg-white no-print">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
-          <span>English Olympiad Competition 2026 · MGMP Bahasa Inggris SMP Kabupaten Banyuwangi</span>
+          <span>Pembinaan Olimpiade Bahasa Inggris · SMP Negeri 2 Kalibaru (Standar Juknis 2026)</span>
           <div className="flex items-center gap-4">
             <span className="font-mono tabular-nums">100 Soal Penyisihan · Skor +4 / -1 / 0</span>
             {!inAdminWorkspace && !showAdminLogin && (

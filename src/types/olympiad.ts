@@ -99,6 +99,8 @@ export interface AttemptAnalysis {
 }
 
 export const JUKNIS_CONSTANTS = {
+  SCHOOL_NAME: 'SMP Negeri 2 Kalibaru',
+  SCHOOL_SHORT: 'SMPN 2 Kalibaru',
   EVENT_NAME: 'English Olympiad Competition 2026',
   ORGANIZER: 'MGMP Bahasa Inggris SMP Kabupaten Banyuwangi',
   PRELIMINARY_QUESTIONS: 100,

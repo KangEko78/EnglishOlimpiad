@@ -32,9 +32,11 @@ export function AdminLoginView({ onSuccess, onBackToStudent }: AdminLoginViewPro
           <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
             <Lock className="w-5 h-5" />
           </div>
-          <h1 className="text-xl font-bold text-slate-900">Login Admin Panel</h1>
+          <h1 className="text-xl font-bold text-slate-900">
+            Admin Panel SMPN 2 Kalibaru
+          </h1>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Akses khusus pembina & panitia untuk membuka hasil siswa, analisa kisi-kisi, bank 100 soal beserta kunci, dan konfigurasi database Apps Script.
+            Akses khusus guru pembina Olimpiade Bahasa Inggris SMP Negeri 2 Kalibaru untuk membuka hasil siswa, analisa kisi-kisi, bank 100 soal, dan database Apps Script.
           </p>
         </div>
 
