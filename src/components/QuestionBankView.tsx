@@ -10,7 +10,7 @@ import {
   Printer,
   Search,
 } from 'lucide-react';
-import { getBankStatistics, QUESTION_BANK } from '../data/questionBank';
+import { getBankStatistics, GRAMMAR_50_BANK, QUESTION_BANK } from '../data/questionBank';
 import { CognitiveLevel, SYLLABUS_BLUEPRINT, SyllabusDomain } from '../types/olympiad';
 import {
   exportQuestionsAsAiken,
@@ -35,6 +35,7 @@ const COGNITIVE_STYLE: Record<CognitiveLevel, string> = {
 };
 
 export function QuestionBankView({ onStartFocusedCbt }: QuestionBankViewProps) {
+  const [bankMode, setBankMode] = useState<'juknis_100' | 'grammar_50'>('juknis_100');
   const [selectedDomain, setSelectedDomain] = useState<SyllabusDomain | 'ALL'>('ALL');
   const [selectedLevel, setSelectedLevel] = useState<CognitiveLevel | 'ALL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,12 +43,24 @@ export function QuestionBankView({ onStartFocusedCbt }: QuestionBankViewProps) {
   const [collapsedPassages, setCollapsedPassages] = useState<Record<string, boolean>>({});
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
 
-  const stats = useMemo(() => getBankStatistics(), []);
+  const juknisStats = useMemo(() => getBankStatistics(), []);
+
+  const activeBank = bankMode === 'grammar_50' ? GRAMMAR_50_BANK : QUESTION_BANK;
+
+  const activeLevelCounts = useMemo(() => {
+    const counts: Record<CognitiveLevel, number> = { LOTS: 0, MOTS: 0, HOTS: 0 };
+    for (const q of activeBank) {
+      counts[q.cognitiveLevel] += 1;
+    }
+    return counts;
+  }, [activeBank]);
 
   const filteredQuestions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return QUESTION_BANK.filter((q) => {
-      if (selectedDomain !== 'ALL' && q.domain !== selectedDomain) return false;
+    return activeBank.filter((q) => {
+      if (bankMode === 'juknis_100' && selectedDomain !== 'ALL' && q.domain !== selectedDomain) {
+        return false;
+      }
       if (selectedLevel !== 'ALL' && q.cognitiveLevel !== selectedLevel) return false;
       if (!query) return true;
       return (
@@ -58,7 +71,7 @@ export function QuestionBankView({ onStartFocusedCbt }: QuestionBankViewProps) {
         String(q.id) === query
       );
     });
-  }, [selectedDomain, selectedLevel, searchQuery]);
+  }, [activeBank, bankMode, selectedDomain, selectedLevel, searchQuery]);
 
   const togglePassage = (key: string) => {
     setCollapsedPassages((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -69,19 +82,56 @@ export function QuestionBankView({ onStartFocusedCbt }: QuestionBankViewProps) {
     window.setTimeout(() => setExportFeedback(null), 3000);
   };
 
+  const handleSwitchBankMode = (nextMode: 'juknis_100' | 'grammar_50') => {
+    setBankMode(nextMode);
+    setSelectedLevel('ALL');
+    setSearchQuery('');
+    setSelectedDomain(nextMode === 'grammar_50' ? 'Grammar & Structure' : 'ALL');
+  };
+
   return (
     <div className="space-y-8">
       {/* Header & Export Toolbar */}
       <section className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-6 pb-6 border-b border-slate-200 no-print">
-        <div className="space-y-2 max-w-2xl">
+        <div className="space-y-3 max-w-2xl">
+          <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+            <button
+              type="button"
+              onClick={() => handleSwitchBankMode('juknis_100')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                bankMode === 'juknis_100'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Bank 100 Soal Juknis
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchBankMode('grammar_50')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                bankMode === 'grammar_50'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Paket 50 Soal Fokus Grammar
+            </button>
+          </div>
           <p className="text-xs font-medium text-blue-700">
-            Bank Soal Standar Olimpiade · Juknis MGMP Banyuwangi 2026
+            {bankMode === 'grammar_50'
+              ? 'Paket Remedial & Pengayaan Khusus Tata Bahasa · SMP Negeri 2 Kalibaru'
+              : 'Bank Soal Standar Olimpiade · Juknis MGMP Banyuwangi 2026'}
           </p>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 [text-wrap:balance]">
-            100 Soal Pilihan Ganda (LOTS, MOTS & HOTS)
+            {bankMode === 'grammar_50'
+              ? '50 Soal Fokus Grammar & Structure (LOTS, MOTS & HOTS)'
+              : '100 Soal Pilihan Ganda (LOTS, MOTS & HOTS)'}
           </h1>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Telaah seluruh butir soal sesuai 7 kisi-kisi resmi, verifikasi kunci jawaban beserta rasionalnya, atau ekspor langsung ke format CBT (Aiken, CSV, JSON) maupun cetak naskah Paper-Based Test.
+            {bankMode === 'grammar_50'
+              ? 'Gabungan 22 butir Grammar Juknis (#079–#100) dan 28 butir penguatan khusus (#101–#128) mencakup Tenses, Clauses, Inversion, Subjunctive, Concord, Passive, dan Error Analysis.'
+              : 'Telaah seluruh butir soal sesuai 7 kisi-kisi resmi, verifikasi kunci jawaban beserta rasionalnya, atau ekspor langsung ke format CBT (Aiken, CSV, JSON) maupun cetak naskah Paper-Based Test.'}
           </p>
         </div>
 
@@ -151,7 +201,7 @@ export function QuestionBankView({ onStartFocusedCbt }: QuestionBankViewProps) {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Semua Level ({stats.total})
+              Semua Level ({activeBank.length})
             </button>
             <button
               type="button"
@@ -162,7 +212,7 @@ export function QuestionBankView({ onStartFocusedCbt }: QuestionBankViewProps) {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              LOTS ({stats.byCognitive.LOTS})
+              LOTS ({activeLevelCounts.LOTS})
             </button>
             <button
               type="button"
@@ -173,7 +223,7 @@ export function QuestionBankView({ onStartFocusedCbt }: QuestionBankViewProps) {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              MOTS ({stats.byCognitive.MOTS})
+              MOTS ({activeLevelCounts.MOTS})
             </button>
             <button
               type="button"
@@ -184,7 +234,7 @@ export function QuestionBankView({ onStartFocusedCbt }: QuestionBankViewProps) {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              HOTS ({stats.byCognitive.HOTS})
+              HOTS ({activeLevelCounts.HOTS})
             </button>
           </div>
 
@@ -212,7 +262,12 @@ export function QuestionBankView({ onStartFocusedCbt }: QuestionBankViewProps) {
 
             <button
               type="button"
-              onClick={() => onStartFocusedCbt(selectedDomain, selectedLevel)}
+              onClick={() =>
+                onStartFocusedCbt(
+                  bankMode === 'grammar_50' ? 'Grammar & Structure' : selectedDomain,
+                  selectedLevel
+                )
+              }
               className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               Uji di CBT ({filteredQuestions.length} Soal)
@@ -220,50 +275,52 @@ export function QuestionBankView({ onStartFocusedCbt }: QuestionBankViewProps) {
           </div>
         </div>
 
-        {/* Domain Filter Tabs */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-3 border-t border-slate-100">
-          <button
-            type="button"
-            onClick={() => setSelectedDomain('ALL')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              selectedDomain === 'ALL'
-                ? 'bg-slate-900 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'
-            }`}
-          >
-            Semua Kisi-Kisi ({stats.total})
-          </button>
-          {SYLLABUS_BLUEPRINT.map((bp) => {
-            const count = stats.byDomain[bp.domain].total;
-            const active = selectedDomain === bp.domain;
-            return (
-              <button
-                key={bp.domain}
-                type="button"
-                onClick={() => setSelectedDomain(bp.domain)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  active
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'
-                }`}
-              >
-                {bp.domain} ({count})
-              </button>
-            );
-          })}
-        </div>
+        {/* Domain Filter Tabs (only for 100-question Juknis bank) */}
+        {bankMode === 'juknis_100' && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setSelectedDomain('ALL')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                selectedDomain === 'ALL'
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'
+              }`}
+            >
+              Semua Kisi-Kisi ({juknisStats.total})
+            </button>
+            {SYLLABUS_BLUEPRINT.map((bp) => {
+              const count = juknisStats.byDomain[bp.domain].total;
+              const active = selectedDomain === bp.domain;
+              return (
+                <button
+                  key={bp.domain}
+                  type="button"
+                  onClick={() => setSelectedDomain(bp.domain)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    active
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'
+                  }`}
+                >
+                  {bp.domain} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Results Count */}
       <div className="flex items-center justify-between text-xs text-slate-500">
         <span className="font-mono tabular-nums">
-          Menampilkan {filteredQuestions.length} dari {stats.total} soal
+          Menampilkan {filteredQuestions.length} dari {activeBank.length} soal
         </span>
         {(selectedDomain !== 'ALL' || selectedLevel !== 'ALL' || searchQuery) && (
           <button
             type="button"
             onClick={() => {
-              setSelectedDomain('ALL');
+              setSelectedDomain(bankMode === 'grammar_50' ? 'Grammar & Structure' : 'ALL');
               setSelectedLevel('ALL');
               setSearchQuery('');
             }}

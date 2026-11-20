@@ -21,7 +21,12 @@ import {
 } from 'lucide-react';
 import heroStudyImg from '../assets/images/hero_olympiad_study_1795062081970.jpg';
 import laurelEmblemImg from '../assets/images/olympiad_laurel_emblem_1795062082827.jpg';
-import { analyzeAttempt, QUESTION_BANK, QUESTION_BY_ID } from '../data/questionBank';
+import {
+  analyzeAttempt,
+  GRAMMAR_50_BANK,
+  QUESTION_BANK,
+  QUESTION_BY_ID,
+} from '../data/questionBank';
 import {
   CbtAttempt,
   CbtSessionConfig,
@@ -52,7 +57,7 @@ interface CbtSimulatorViewProps {
   onOpenAdminAnalytics?: (attemptId: string) => void;
 }
 
-type ExamModeChoice = 'full_preliminary' | 'diagnostic_21' | 'focused_drill';
+type ExamModeChoice = 'full_preliminary' | 'grammar_50' | 'diagnostic_21' | 'focused_drill';
 
 const ACTIVE_SESSION_STORAGE_KEY = 'smpn2kbr_active_cbt_draft_v1';
 
@@ -140,7 +145,11 @@ export function CbtSimulatorView({
     grade: '8',
   });
   const [modeChoice, setModeChoice] = useState<ExamModeChoice>(
-    initialPreset?.autoFocusMode === 'focused' ? 'focused_drill' : 'full_preliminary'
+    initialPreset?.autoFocusMode === 'focused'
+      ? initialPreset.domain === 'Grammar & Structure' && initialPreset.level === 'ALL'
+        ? 'grammar_50'
+        : 'focused_drill'
+      : 'full_preliminary'
   );
   const [focusedDomain, setFocusedDomain] = useState<SyllabusDomain | 'ALL'>(
     initialPreset?.domain ?? 'ALL'
@@ -192,7 +201,11 @@ export function CbtSimulatorView({
     if (initialPreset) {
       setCompletedReceipt(null);
       if (initialPreset.autoFocusMode === 'focused') {
-        setModeChoice('focused_drill');
+        if (initialPreset.domain === 'Grammar & Structure' && initialPreset.level === 'ALL') {
+          setModeChoice('grammar_50');
+        } else {
+          setModeChoice('focused_drill');
+        }
         setFocusedDomain(initialPreset.domain);
         setFocusedLevel(initialPreset.level);
       } else if (initialPreset.autoFocusMode === 'full') {
@@ -202,11 +215,15 @@ export function CbtSimulatorView({
   }, [initialPreset]);
 
   const focusedQuestionIds = useMemo(() => {
-    return QUESTION_BANK.filter((q) => {
-      if (focusedDomain !== 'ALL' && q.domain !== focusedDomain) return false;
-      if (focusedLevel !== 'ALL' && q.cognitiveLevel !== focusedLevel) return false;
-      return true;
-    }).map((q) => q.id);
+    const sourceBank =
+      focusedDomain === 'Grammar & Structure' ? GRAMMAR_50_BANK : QUESTION_BANK;
+    return sourceBank
+      .filter((q) => {
+        if (focusedDomain !== 'ALL' && q.domain !== focusedDomain) return false;
+        if (focusedLevel !== 'ALL' && q.cognitiveLevel !== focusedLevel) return false;
+        return true;
+      })
+      .map((q) => q.id);
   }, [focusedDomain, focusedLevel]);
 
   const diagnostic21Ids = useMemo(() => buildDiagnostic21Ids(), []);
@@ -218,6 +235,14 @@ export function CbtSimulatorView({
         title: 'Simulasi Penuh Babak Penyisihan (Standar Juknis)',
         questionIds: QUESTION_BANK.map((q) => q.id),
         durationMinutes: JUKNIS_CONSTANTS.PRELIMINARY_DURATION_MINUTES,
+      };
+    }
+    if (modeChoice === 'grammar_50') {
+      return {
+        mode: 'focused_drill',
+        title: 'Fokus Penguatan Grammar & Structure (50 Soal)',
+        questionIds: GRAMMAR_50_BANK.map((q) => q.id),
+        durationMinutes: 60,
       };
     }
     if (modeChoice === 'diagnostic_21') {
@@ -427,11 +452,16 @@ export function CbtSimulatorView({
 
     const handleLaunchWeakestDrill = () => {
       if (!weakestDomain) return;
-      const drillIds = QUESTION_BANK.filter((q) => q.domain === weakestDomain.domain).map((q) => q.id);
-      const minutes = Math.max(8, Math.ceil((drillIds.length * 72) / 60));
+      const isGrammar = weakestDomain.domain === 'Grammar & Structure';
+      const drillIds = isGrammar
+        ? GRAMMAR_50_BANK.map((q) => q.id)
+        : QUESTION_BANK.filter((q) => q.domain === weakestDomain.domain).map((q) => q.id);
+      const minutes = isGrammar ? 60 : Math.max(8, Math.ceil((drillIds.length * 72) / 60));
       startSessionWithConfig({
         mode: 'focused_drill',
-        title: `Latihan Penguatan: ${weakestDomain.domain}`,
+        title: isGrammar
+          ? 'Fokus Penguatan Grammar & Structure (50 Soal)'
+          : `Latihan Penguatan: ${weakestDomain.domain}`,
         questionIds: drillIds,
         durationMinutes: minutes,
       });
@@ -1245,6 +1275,28 @@ export function CbtSimulatorView({
 
               <button
                 type="button"
+                onClick={() => setModeChoice('grammar_50')}
+                className={`text-left p-4 rounded-lg border transition-colors cursor-pointer ${
+                  modeChoice === 'grammar_50'
+                    ? 'bg-blue-50/70 border-blue-600'
+                    : 'bg-white border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-slate-900">
+                    Paket Fokus Penguatan Grammar &amp; Structure
+                  </span>
+                  <span className="text-xs font-mono tabular-nums font-semibold text-blue-700 whitespace-nowrap shrink-0">
+                    50 Soal · 60 Menit
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 mt-1">
+                  Latihan khusus menambal kelemahan tata bahasa (Tenses, Clauses, Inversion, Subjunctive, Concord, Passive &amp; Error Analysis) — 13 LOTS, 18 MOTS, dan 19 HOTS.
+                </p>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setModeChoice('diagnostic_21')}
                 className={`text-left p-4 rounded-lg border transition-colors cursor-pointer ${
                   modeChoice === 'diagnostic_21'
@@ -1301,10 +1353,12 @@ export function CbtSimulatorView({
                     onChange={(e) => setFocusedDomain(e.target.value as SyllabusDomain | 'ALL')}
                     className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg"
                   >
-                    <option value="ALL">Semua Kisi-Kisi</option>
+                    <option value="ALL">Semua Kisi-Kisi (100 Soal Juknis)</option>
                     {SYLLABUS_BLUEPRINT.map((bp) => (
                       <option key={bp.domain} value={bp.domain}>
-                        {bp.domain} ({bp.targetCount} soal)
+                        {bp.domain} (
+                        {bp.domain === 'Grammar & Structure' ? '50 soal Paket Fokus' : `${bp.targetCount} soal`}
+                        )
                       </option>
                     ))}
                   </select>

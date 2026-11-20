@@ -12,6 +12,9 @@ import {
 import { QUESTIONS_READING_1 } from './questionsReading1';
 import { QUESTIONS_READING_2 } from './questionsReading2';
 import { QUESTIONS_GRAMMAR } from './questionsGrammar';
+import { EXTRA_GRAMMAR_DRILL_QUESTIONS, GRAMMAR_50_BANK } from './grammarFocus50';
+
+export { GRAMMAR_50_BANK };
 
 export const QUESTION_BANK: OlympiadQuestion[] = [
   ...QUESTIONS_READING_1,
@@ -20,7 +23,7 @@ export const QUESTION_BANK: OlympiadQuestion[] = [
 ].sort((a, b) => a.id - b.id);
 
 export const QUESTION_BY_ID: Record<number, OlympiadQuestion> = Object.fromEntries(
-  QUESTION_BANK.map((q) => [q.id, q])
+  [...QUESTION_BANK, ...EXTRA_GRAMMAR_DRILL_QUESTIONS].map((q) => [q.id, q])
 );
 
 export function getBankStatistics() {
