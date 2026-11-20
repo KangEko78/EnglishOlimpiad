@@ -136,10 +136,22 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  const lock = LockService.getScriptLock();
   try {
-    const body = JSON.parse(e.postData.contents || '{}');
+    lock.waitLock(10000);
+    const raw = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
+    const body = JSON.parse(raw);
     const action = body.action || 'saveAttempt';
     const sheet = getOrCreateSheet_();
+
+    if (action === 'testWrite') {
+      return jsonResponse_({
+        ok: true,
+        writable: true,
+        sheetName: sheet.getName(),
+        rowCount: Math.max(0, sheet.getLastRow() - 1)
+      });
+    }
 
     if (action === 'deleteAttempt' && body.attemptId) {
       const lastRow = sheet.getLastRow();
@@ -211,7 +223,9 @@ function doPost(e) {
     sheet.appendRow(row);
     return jsonResponse_({ ok: true, id: attempt.id });
   } catch (err) {
-    return jsonResponse_({ ok: false, error: err.message });
+    return jsonResponse_({ ok: false, error: err && err.message ? err.message : String(err) });
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
   }
 }
 `;
@@ -221,6 +235,7 @@ export interface PingResult {
   spreadsheetName?: string;
   sheetName?: string;
   rowCount?: number;
+  writable?: boolean;
   error?: string;
 }
 
@@ -238,22 +253,55 @@ async function fetchWithTimeout(
   }
 }
 
+function parseJsonOrExplain<T>(rawText: string, status: number): T {
+  const trimmed = rawText.trim();
+  if (trimmed.startsWith('<')) {
+    throw new Error(
+      'Apps Script mengembalikan halaman HTML/login Google. Pastikan URL berakhiran /exec dan akses deployment disetel ke "Anyone".'
+    );
+  }
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    throw new Error(`Respons server tidak valid (HTTP ${status})`);
+  }
+}
+
 export async function pingAppsScript(webAppUrl: string): Promise<PingResult> {
   const url = `${webAppUrl.trim()}${webAppUrl.includes('?') ? '&' : '?'}action=ping`;
   const res = await fetchWithTimeout(url, { method: 'GET', redirect: 'follow' });
+  const text = await res.text();
   if (!res.ok) {
     return { ok: false, error: `HTTP ${res.status}` };
   }
-  return (await res.json()) as PingResult;
+  return parseJsonOrExplain<PingResult>(text, res.status);
+}
+
+export async function testPostAppsScript(webAppUrl: string): Promise<PingResult> {
+  const res = await fetchWithTimeout(webAppUrl.trim(), {
+    method: 'POST',
+    redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'testWrite' }),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    return { ok: false, error: `HTTP ${res.status}` };
+  }
+  return parseJsonOrExplain<PingResult>(text, res.status);
 }
 
 export async function fetchAttemptsFromSheets(webAppUrl: string): Promise<CbtAttempt[]> {
   const url = `${webAppUrl.trim()}${webAppUrl.includes('?') ? '&' : '?'}action=list`;
   const res = await fetchWithTimeout(url, { method: 'GET', redirect: 'follow' });
+  const text = await res.text();
   if (!res.ok) {
     throw new Error(`Gagal memuat data Spreadsheet (HTTP ${res.status})`);
   }
-  const data = (await res.json()) as { ok: boolean; attempts?: CbtAttempt[]; error?: string };
+  const data = parseJsonOrExplain<{ ok: boolean; attempts?: CbtAttempt[]; error?: string }>(
+    text,
+    res.status
+  );
   if (!data.ok) {
     throw new Error(data.error || 'Respons Apps Script tidak valid');
   }
@@ -317,11 +365,11 @@ export async function pushAttemptToSheets(
     body: JSON.stringify(payload),
   });
 
+  const text = await res.text();
   if (!res.ok) {
     return { ok: false, error: `HTTP ${res.status}` };
   }
-  const json = (await res.json()) as { ok: boolean; error?: string };
-  return json;
+  return parseJsonOrExplain<{ ok: boolean; error?: string }>(text, res.status);
 }
 
 export async function deleteAttemptFromSheets(
@@ -335,9 +383,9 @@ export async function deleteAttemptFromSheets(
     body: JSON.stringify({ action: 'deleteAttempt', attemptId }),
   });
 
+  const text = await res.text();
   if (!res.ok) {
     return { ok: false, error: `HTTP ${res.status}` };
   }
-  const json = (await res.json()) as { ok: boolean; error?: string };
-  return json;
+  return parseJsonOrExplain<{ ok: boolean; error?: string }>(text, res.status);
 }

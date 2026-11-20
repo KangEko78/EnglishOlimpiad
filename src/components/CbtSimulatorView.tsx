@@ -34,6 +34,12 @@ import {
 } from '../types/olympiad';
 import { formatTimer } from '../utils/exportQuestions';
 
+interface SyncOutcome {
+  syncedToSheets: boolean;
+  syncError?: string;
+  missingUrl?: boolean;
+}
+
 interface CbtSimulatorViewProps {
   initialPreset?: {
     domain: SyllabusDomain | 'ALL';
@@ -41,7 +47,8 @@ interface CbtSimulatorViewProps {
     autoFocusMode?: 'full' | 'focused';
   } | null;
   isAdminMode: boolean;
-  onCompleteAttempt: (attempt: CbtAttempt) => Promise<{ syncedToSheets: boolean }>;
+  onCompleteAttempt: (attempt: CbtAttempt) => Promise<SyncOutcome>;
+  onRetrySyncAttempt?: (attempt: CbtAttempt) => Promise<SyncOutcome>;
   onOpenAdminAnalytics?: (attemptId: string) => void;
 }
 
@@ -124,6 +131,7 @@ export function CbtSimulatorView({
   initialPreset,
   isAdminMode,
   onCompleteAttempt,
+  onRetrySyncAttempt,
   onOpenAdminAnalytics,
 }: CbtSimulatorViewProps) {
   const [student, setStudent] = useState<StudentProfile>({
@@ -166,8 +174,11 @@ export function CbtSimulatorView({
   const [completedReceipt, setCompletedReceipt] = useState<{
     attempt: CbtAttempt;
     syncedToSheets: boolean;
+    syncError?: string;
+    missingUrl?: boolean;
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRetryingSync, setIsRetryingSync] = useState(false);
 
   const latestStateRef = useRef({
     activeSession,
@@ -310,13 +321,22 @@ export function CbtSimulatorView({
       setSavedDraft(null);
       setActiveSession(null);
       setShowSubmitConfirm(false);
-      setCompletedReceipt({ attempt, syncedToSheets: res.syncedToSheets });
-    } catch {
+      setCompletedReceipt({
+        attempt,
+        syncedToSheets: res.syncedToSheets,
+        syncError: res.syncError,
+        missingUrl: res.missingUrl,
+      });
+    } catch (err) {
       clearSavedDraft();
       setSavedDraft(null);
       setActiveSession(null);
       setShowSubmitConfirm(false);
-      setCompletedReceipt({ attempt, syncedToSheets: false });
+      setCompletedReceipt({
+        attempt,
+        syncedToSheets: false,
+        syncError: err instanceof Error ? err.message : 'Gagal mengirim ke Spreadsheet.',
+      });
     } finally {
       setIsSubmitting(false);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -454,9 +474,35 @@ export function CbtSimulatorView({
                 </p>
                 <p className="text-xs text-slate-500">
                   {completedReceipt.syncedToSheets
-                    ? 'Tercatat di Database Spreadsheet SMP Negeri 2 Kalibaru untuk telaah Pembina.'
-                    : 'Tersimpan di perangkat ini. Anda dapat mencetak laporan ini sebagai arsip latihan.'}
+                    ? 'Tercatat otomatis di Database Spreadsheet SMP Negeri 2 Kalibaru untuk telaah Pembina.'
+                    : completedReceipt.missingUrl
+                    ? 'Tersimpan aman di perangkat ini. Catatan: Alamat database Spreadsheet (VITE_APPS_SCRIPT_URL) belum aktif di tautan ini.'
+                    : `Tersimpan aman di perangkat ini, namun gagal kirim ke Spreadsheet (${completedReceipt.syncError || 'gangguan jaringan'}).`}
                 </p>
+                {!completedReceipt.syncedToSheets && onRetrySyncAttempt && !completedReceipt.missingUrl && (
+                  <button
+                    type="button"
+                    disabled={isRetryingSync}
+                    onClick={async () => {
+                      setIsRetryingSync(true);
+                      const next = await onRetrySyncAttempt(completedReceipt.attempt);
+                      setCompletedReceipt((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              syncedToSheets: next.syncedToSheets,
+                              syncError: next.syncError,
+                              missingUrl: next.missingUrl,
+                            }
+                          : null
+                      );
+                      setIsRetryingSync(false);
+                    }}
+                    className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-900 bg-amber-100 border border-amber-300 rounded-md hover:bg-amber-200 disabled:opacity-50 cursor-pointer no-print"
+                  >
+                    {isRetryingSync ? 'Mengirim Ulang...' : 'Kirim Ulang ke Spreadsheet'}
+                  </button>
+                )}
               </div>
             </div>
 

@@ -15,10 +15,12 @@ import {
   pingAppsScript,
   SPREADSHEET_ID,
   SPREADSHEET_URL,
+  testPostAppsScript,
 } from '../utils/appsScriptSync';
 
 interface AppsScriptSettingsViewProps {
   webAppUrl: string;
+  envWebAppUrl: string;
   onSaveWebAppUrl: (url: string) => void;
   onSyncAllFromSheets: () => Promise<void>;
   onPushLocalToSheets: () => Promise<{ pushed: number; failed: number }>;
@@ -29,6 +31,7 @@ interface AppsScriptSettingsViewProps {
 
 export function AppsScriptSettingsView({
   webAppUrl,
+  envWebAppUrl,
   onSaveWebAppUrl,
   onSyncAllFromSheets,
   onPushLocalToSheets,
@@ -41,7 +44,7 @@ export function AppsScriptSettingsView({
   const [copiedLink, setCopiedLink] = useState(false);
   const [pingState, setPingState] = useState<{
     loading: boolean;
-    result: PingResult | null;
+    result: (PingResult & { writeVerified?: boolean; writeError?: string }) | null;
   }>({ loading: false, result: null });
   const [pushFeedback, setPushFeedback] = useState<string | null>(null);
 
@@ -54,8 +57,31 @@ export function AppsScriptSettingsView({
     }
     setPingState({ loading: true, result: null });
     try {
-      const res = await pingAppsScript(clean);
-      setPingState({ loading: false, result: res });
+      const getRes = await pingAppsScript(clean);
+      if (!getRes.ok) {
+        setPingState({ loading: false, result: getRes });
+        return;
+      }
+      try {
+        const postRes = await testPostAppsScript(clean);
+        setPingState({
+          loading: false,
+          result: {
+            ...getRes,
+            writeVerified: Boolean(postRes.ok),
+            writeError: postRes.ok ? undefined : postRes.error,
+          },
+        });
+      } catch (postErr) {
+        setPingState({
+          loading: false,
+          result: {
+            ...getRes,
+            writeVerified: false,
+            writeError: postErr instanceof Error ? postErr.message : 'POST gagal diuji',
+          },
+        });
+      }
     } catch (err) {
       setPingState({
         loading: false,
@@ -169,15 +195,51 @@ export function AppsScriptSettingsView({
             </div>
           </div>
 
+          {/* Build-time Vercel Env Status Banner */}
+          <div
+            className={`p-3.5 rounded-lg border text-xs flex items-start gap-2.5 ${
+              envWebAppUrl
+                ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                : 'bg-amber-50/80 border-amber-200 text-amber-900'
+            }`}
+          >
+            {envWebAppUrl ? (
+              <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+            ) : (
+              <TriangleAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            )}
+            <div className="space-y-1 leading-relaxed">
+              {envWebAppUrl ? (
+                <>
+                  <div className="font-semibold">
+                    Environment Vercel (`VITE_APPS_SCRIPT_URL`) Aktif
+                  </div>
+                  <div className="text-emerald-800">
+                    Semua HP/laptop siswa yang membuka alamat Vercel utama otomatis mengirim hasil ke Spreadsheet.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="font-semibold">
+                    Perhatian: `VITE_APPS_SCRIPT_URL` Belum Terbaca di Build Ini
+                  </div>
+                  <div>
+                    URL yang disimpan di kolom di bawah hanya tersimpan di browser perangkat ini saja. Agar siswa di HP/laptop lain datanya masuk ke Sheet, pastikan <span className="font-mono font-semibold">VITE_APPS_SCRIPT_URL</span> sudah diisi di Vercel lalu klik <strong>Redeploy</strong>, atau bagikan <strong>Tautan Ujian Siswa (?api=...)</strong> di bawah.
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
           {pingState.result && (
             <div
               className={`p-3.5 rounded-lg border text-xs flex items-start gap-2.5 ${
-                pingState.result.ok
+                pingState.result.ok && pingState.result.writeVerified !== false
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
                   : 'bg-rose-50 border-rose-200 text-rose-900'
               }`}
             >
-              {pingState.result.ok ? (
+              {pingState.result.ok && pingState.result.writeVerified !== false ? (
                 <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
               ) : (
                 <TriangleAlert className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" />
@@ -189,13 +251,16 @@ export function AppsScriptSettingsView({
                       Terhubung ke Spreadsheet: {pingState.result.spreadsheetName}
                     </div>
                     <div className="font-mono tabular-nums">
-                      Sheet: {pingState.result.sheetName} · Tersimpan {pingState.result.rowCount} baris hasil siswa
+                      Sheet: {pingState.result.sheetName} · Tersimpan {pingState.result.rowCount} baris ·{' '}
+                      {pingState.result.writeVerified
+                        ? 'Uji Tulis POST: BERHASIL'
+                        : `Uji Tulis POST: GAGAL (${pingState.result.writeError || 'Cek deployment ulang Code.gs'})`}
                     </div>
                   </>
                 ) : (
                   <div>
                     Koneksi gagal: {pingState.result.error}. Pastikan Web App di-deploy dengan akses{' '}
-                    <strong>Anyone</strong>.
+                    <strong>Anyone</strong> dan berakhiran <span className="font-mono">/exec</span>.
                   </div>
                 )}
               </div>

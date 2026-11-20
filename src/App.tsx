@@ -17,7 +17,20 @@ type AdminTab = 'results' | 'analytics' | 'bank' | 'syllabus' | 'apps_script';
 
 const STORAGE_ATTEMPTS_KEY = 'mgmp_banyuwangi_olympiad_2026_attempts';
 const STORAGE_WEBAPP_URL_KEY = 'mgmp_banyuwangi_apps_script_url';
+const STORAGE_UNSYNCED_IDS_KEY = 'smpn2kbr_unsynced_attempt_ids_v1';
 const SESSION_ADMIN_AUTH_KEY = 'mgmp_banyuwangi_admin_auth';
+const ENV_APPS_SCRIPT_URL = (import.meta.env.VITE_APPS_SCRIPT_URL as string | undefined)?.trim() ?? '';
+
+function loadUnsyncedIds(): string[] {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_UNSYNCED_IDS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
 
 function loadStoredAttempts(): CbtAttempt[] {
   try {
@@ -83,6 +96,7 @@ export default function App() {
   });
 
   const [webAppUrl, setWebAppUrl] = useState<string>(loadInitialWebAppUrl);
+  const [unsyncedIds, setUnsyncedIds] = useState<string[]>(loadUnsyncedIds);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncMessage, setLastSyncMessage] = useState<string | null>(null);
 
@@ -99,6 +113,14 @@ export default function App() {
       // Ignore storage quota errors
     }
   }, [attempts]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(STORAGE_UNSYNCED_IDS_KEY, JSON.stringify(unsyncedIds));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [unsyncedIds]);
 
   const handleSaveWebAppUrl = (url: string) => {
     setWebAppUrl(url);
@@ -146,35 +168,85 @@ export default function App() {
     setIsSyncing(true);
     let pushed = 0;
     let failed = 0;
+    const syncedNow: string[] = [];
     for (const att of attempts) {
       try {
         const res = await pushAttemptToSheets(webAppUrl, att);
-        if (res.ok) pushed += 1;
-        else failed += 1;
+        if (res.ok) {
+          pushed += 1;
+          syncedNow.push(att.id);
+        } else {
+          failed += 1;
+        }
       } catch {
         failed += 1;
       }
+    }
+    if (syncedNow.length > 0) {
+      setUnsyncedIds((prev) => prev.filter((id) => !syncedNow.includes(id)));
     }
     setIsSyncing(false);
     return { pushed, failed };
   };
 
+  const retrySingleAttempt = useCallback(
+    async (
+      attempt: CbtAttempt
+    ): Promise<{ syncedToSheets: boolean; syncError?: string; missingUrl?: boolean }> => {
+      if (!webAppUrl) {
+        setUnsyncedIds((prev) => (prev.includes(attempt.id) ? prev : [attempt.id, ...prev]));
+        return {
+          syncedToSheets: false,
+          missingUrl: true,
+          syncError: 'URL Web App Apps Script belum aktif di halaman ini.',
+        };
+      }
+
+      try {
+        const res = await pushAttemptToSheets(webAppUrl, attempt);
+        if (res.ok) {
+          setUnsyncedIds((prev) => prev.filter((id) => id !== attempt.id));
+          return { syncedToSheets: true };
+        }
+        setUnsyncedIds((prev) => (prev.includes(attempt.id) ? prev : [attempt.id, ...prev]));
+        return {
+          syncedToSheets: false,
+          syncError: res.error || 'Apps Script menolak penyimpanan data.',
+        };
+      } catch (err) {
+        setUnsyncedIds((prev) => (prev.includes(attempt.id) ? prev : [attempt.id, ...prev]));
+        const msg =
+          err instanceof Error
+            ? err.name === 'AbortError'
+              ? 'Koneksi ke Google Apps Script melebihi batas waktu (12 detik).'
+              : err.message
+            : 'Gagal terhubung ke jaringan.';
+        return { syncedToSheets: false, syncError: msg };
+      }
+    },
+    [webAppUrl]
+  );
+
+  // Auto-retry pending uploads whenever internet reconnects or webAppUrl becomes available
+  useEffect(() => {
+    if (!webAppUrl || unsyncedIds.length === 0) return;
+    const flushPending = async () => {
+      const pending = attempts.filter((a) => unsyncedIds.includes(a.id));
+      for (const att of pending) {
+        await retrySingleAttempt(att);
+      }
+    };
+    void flushPending();
+    window.addEventListener('online', flushPending);
+    return () => window.removeEventListener('online', flushPending);
+  }, [webAppUrl, unsyncedIds, attempts, retrySingleAttempt]);
+
   const handleCompleteAttempt = async (
     attempt: CbtAttempt
-  ): Promise<{ syncedToSheets: boolean }> => {
+  ): Promise<{ syncedToSheets: boolean; syncError?: string; missingUrl?: boolean }> => {
     setAttempts((prev) => mergeAttempts([attempt], prev));
     setSelectedAttemptId(attempt.id);
-
-    if (!webAppUrl) {
-      return { syncedToSheets: false };
-    }
-
-    try {
-      const res = await pushAttemptToSheets(webAppUrl, attempt);
-      return { syncedToSheets: res.ok };
-    } catch {
-      return { syncedToSheets: false };
-    }
+    return retrySingleAttempt(attempt);
   };
 
   const handleAddManualAttempt = (attempt: CbtAttempt) => {
@@ -386,6 +458,7 @@ export default function App() {
             {adminTab === 'apps_script' && (
               <AppsScriptSettingsView
                 webAppUrl={webAppUrl}
+                envWebAppUrl={ENV_APPS_SCRIPT_URL}
                 onSaveWebAppUrl={handleSaveWebAppUrl}
                 onSyncAllFromSheets={syncFromSheets}
                 onPushLocalToSheets={handlePushLocalToSheets}
@@ -400,6 +473,7 @@ export default function App() {
             initialPreset={cbtPreset}
             isAdminMode={false}
             onCompleteAttempt={handleCompleteAttempt}
+            onRetrySyncAttempt={retrySingleAttempt}
           />
         )}
       </main>
